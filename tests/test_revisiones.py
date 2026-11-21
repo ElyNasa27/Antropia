@@ -61,9 +61,14 @@ class TestRevisionDelRespaldoDeclarado(unittest.TestCase):
 
     def test_un_agente_no_revisa_el_respaldo(self):
         coord = nuevo_escenario(revisar_respaldos=False)
-        for agente in ("A2", "a3", ""):
+        for agente in ("A2", "a3", "", None):
             with self.assertRaises(OperacionNoPermitida):
                 coord.revisar_respaldo_declarado("alba", agente, REVISION_APROBADA)
+        self.assertEqual(coord.repo.participante("alba").revision_respaldo, REVISION_PENDIENTE)
+
+    def test_queda_registrado_el_id_de_la_persona_simulada(self):
+        coord = nuevo_escenario()
+        self.assertEqual(coord.repo.participante("alba").respaldo_revisado_por, "rev-ana")
 
     def test_cambiar_el_respaldo_invalida_la_revision(self):
         coord = nuevo_escenario()
@@ -89,7 +94,7 @@ class TestRevisionDeLaEvidenciaDelMatch(unittest.TestCase):
         [m] = coord.proponer_matches(DESDE, "e1").propuestas
         coord.aprobar_match(m.id, REVISORA, evidencia_revisada=True)
         self.assertTrue(m.es_valida)
-        self.assertEqual((m.decision, m.decidido_por), (DecisionHumana.APROBADA, REVISORA))
+        self.assertEqual((m.decision, m.decidido_por), (DecisionHumana.APROBADA, "rev-ana"))
 
     def test_un_agente_no_aprueba_la_evidencia(self):
         coord = nuevo_escenario()

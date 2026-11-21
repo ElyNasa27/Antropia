@@ -5,6 +5,10 @@ usa **solo datos ficticios**, **no envía mensajes**, **no crea reuniones** y
 **no escribe en Notion**. Las bases de Notion se han leído solo para alinear
 los nombres de los campos (ver `encuentros/notion_mapa.py`).
 
+> **Las personas que revisan son ficticias y sus roles son simulados.** Esto
+> no es autenticación: no se verifica ninguna identidad real y la bitácora es
+> modificable. Ver «Autorización simulada».
+
 ## Flujo
 
 1. Cada participante aporta sus datos y su solicitud por separado.
@@ -34,13 +38,54 @@ los nombres de los campos (ver `encuentros/notion_mapa.py`).
 5. **A3** sugiere el pacto (objetivos, modalidad, fecha, zonas, minutos de cada
    persona y duración total) solo con datos disponibles; si falta algo, queda en
    «falta información». También usa clave de ejecución.
-6. Una persona revisa el pacto; se prepara una invitación para cada participante.
+6. Una persona (coordinadora) revisa el pacto; se prepara una invitación para cada participante.
 7. Cada persona responde por separado (acepta / rechaza / cambios), ligado a la
-   versión vigente. Un cambio genera otra versión y anula las respuestas previas.
-8. Con las dos aceptaciones explícitas, una persona confirma y escribe el enlace https.
-9. Se prepara una confirmación para cada participante.
+   versión vigente; la registra Marta o Luis. Un cambio genera otra versión y
+   anula las respuestas y revisiones previas.
+8. **Revisión humana de las respuestas** (`revisar_respuesta`): la coordinadora
+   revisa cada una de las dos aceptaciones, indicando la versión; la revisión
+   queda ligada a esa versión, que debe ser la vigente.
+9. Con las dos aceptaciones explícitas y revisadas, la coordinadora confirma y
+   escribe el enlace https. **Debe ser una persona distinta de quien aprobó la
+   propuesta**; quien revisó el pacto sí puede confirmarlo.
+10. Se prepara una confirmación para cada participante.
 
 Todos los mensajes quedan en una bandeja de borradores. No existe función de envío.
+
+## Autorización simulada (no es autenticación)
+
+`encuentros/autorizacion_simulada.py` y `datos/personas_simuladas.json`.
+
+**Qué es:** una simulación para probar qué rol puede hacer cada paso humano,
+con personas **ficticias**. **Qué no es:** autenticación.
+
+- No verifica identidades reales: nadie inicia sesión. Cualquiera que ejecute el
+  código puede «actuar como» cualquier persona con `directorio.actuar_como(...)`,
+  y cualquiera que edite el JSON puede cambiar personas y roles.
+- La **bitácora es una lista en memoria y se puede modificar**: sirve para
+  seguir el flujo, no como prueba de quién hizo qué.
+- Lo que sí comprueba, dentro del programa: un nombre escrito ya no basta (hace
+  falta un actor del directorio que usa la coordinación), la persona debe estar
+  activa y tener el rol, y los agentes A2/A3 no pueden ser personas.
+
+| Persona ficticia | id | Rol simulado |
+|---|---|---|
+| Ana (ficticia) | `rev-ana` | `revisora` |
+| Luis (ficticio) | `coord-luis` | `coordinadora` |
+| Marta (ficticia) | `reg-marta` | `registro_respuestas` |
+
+| Acción | Roles que la permiten |
+|---|---|
+| Revisar respaldo · revisar minutos · aprobar o rechazar propuesta | revisora |
+| Revisar el pacto · revisar respuestas · confirmar el pacto · aprobar borradores | coordinadora |
+| Registrar respuestas | coordinadora, registro_respuestas |
+
+Reglas adicionales: quien confirma el pacto ≠ quien aprobó la propuesta; las
+dos aceptaciones deben estar revisadas para la versión vigente. En la bitácora
+y en los campos `*_por` queda el id de la persona simulada y el rol usado.
+
+La autenticación real se diseñará aparte (p. ej. usuarios verificados de Notion,
+con cada decisión ligada a la versión exacta).
 
 ## Tiempo de cada encuentro
 
@@ -73,13 +118,16 @@ Todos los mensajes quedan en una bandeja de borradores. No existe función de en
 | `encuentros/modelos.py` | Participante, Solicitud, PropuestaMatch, Pacto, Respuesta, Mensaje |
 | `encuentros/a2_match.py` | A2: requisitos, criterios del par, límite de 3, resultados |
 | `encuentros/a3_pacto.py` | A3: primera franja común en UTC que cubre la duración total, o lo que falta |
-| `encuentros/coordinacion.py` | Flujo y reglas: las dos revisiones humanas, claves, confirmación |
+| `encuentros/autorizacion_simulada.py` | Personas ficticias y roles **simulados** (no es autenticación) |
+| `datos/personas_simuladas.json` | Ana, Luis y Marta (ficticias) |
+| `encuentros/coordinacion.py` | Flujo y reglas: revisiones humanas (simuladas), claves, revisión de respuestas, confirmación |
 | `encuentros/mensajes.py` | Mensajes en la hora local de cada persona |
 | `encuentros/canal.py` | Bandeja de borradores (sin envío) |
 | `encuentros/repositorio.py` | Almacenamiento en memoria y carga desde JSON |
 | `encuentros/zonas.py` | Zonas horarias reales (zoneinfo + tzdata). Sin tabla simulada |
 | `encuentros/notion_mapa.py` | Columnas y opciones reales de Notion; carencias detectadas |
 | `datos/*.json` | Datos ficticios |
+| `tests/test_autorizacion_simulada.py` | Roles simulados, cuatro ojos, revisión de respuestas por versión |
 | `tests/test_minutos.py` | Reglas del tiempo: suma, disponibilidad completa, aportes distintos, valores sin revisar |
 | `tests/zonas_simuladas.py` | Tabla simulada, **solo** para pruebas sin tzdata |
 | `requirements.txt` | `tzdata==2026.6`, solo para `.venv` |

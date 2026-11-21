@@ -6,9 +6,10 @@
 """
 import unittest
 
-from encuentros.modelos import EstadoPacto, OperacionNoPermitida, TipoRespuesta as T
+from encuentros.modelos import EstadoPacto, OperacionNoPermitida
 from tests.apoyo import (
-    DESDE, ENLACE_PRUEBA, REVISORA, RUTA_ORIGINAL, hasta_invitaciones, nuevo_escenario, responder,
+    COORDINADORA, DESDE, ENLACE_PRUEBA, REVISORA, RUTA_ORIGINAL, aceptan_y_se_revisa,
+    hasta_invitaciones, nuevo_escenario,
 )
 
 TELEFONOS = ["+00 0000 0001", "+00 0000 0002", "+00 0000 0003", "+00 0000 0004"]
@@ -48,9 +49,8 @@ class TestCasoOriginal(unittest.TestCase):
         [inv_bruno] = coord.bandeja.para("bruno", "invitación")
         self.assertIn("tú compartes Excel; Bruno comparte inglés", inv_alba.texto)
         self.assertIn("tú compartes inglés; Alba comparte Excel", inv_bruno.texto)
-        responder(coord, pacto, "alba", T.ACEPTA)
-        responder(coord, pacto, "bruno", T.ACEPTA)
-        coord.confirmar_pacto(pacto.id, REVISORA, ENLACE_PRUEBA)
+        aceptan_y_se_revisa(coord, pacto)
+        coord.confirmar_pacto(pacto.id, COORDINADORA, ENLACE_PRUEBA)
         self.assertEqual(pacto.estado, EstadoPacto.CONFIRMADO)
         self.assertEqual({m.destinatario_id for m in coord.bandeja.mensajes}, {"alba", "bruno"})
         for m in coord.bandeja.mensajes:
@@ -73,9 +73,8 @@ class TestDaniSinAutorizacion(unittest.TestCase):
     def test_dani_no_recibe_mensajes_ni_aparece_en_ellos(self):
         coord = escenario()
         pacto = hasta_invitaciones(coord)
-        responder(coord, pacto, "alba", T.ACEPTA)
-        responder(coord, pacto, "bruno", T.ACEPTA)
-        coord.confirmar_pacto(pacto.id, REVISORA, ENLACE_PRUEBA)
+        aceptan_y_se_revisa(coord, pacto)
+        coord.confirmar_pacto(pacto.id, COORDINADORA, ENLACE_PRUEBA)
         self.assertEqual(coord.bandeja.para("dani"), [])
         self.assertTrue(all("Dani" not in m.texto for m in coord.bandeja.mensajes))
 
@@ -159,8 +158,9 @@ class TestRequisitosDeA2(unittest.TestCase):
         coord.aprobar_match(m.id, REVISORA, evidencia_revisada=True)
         pacto = coord.proponer_pacto(m.id, DESDE, "p1")
         coord.repo.participante("bruno").aptitud = "Incompleto"
-        with self.assertRaises(OperacionNoPermitida):
-            coord.revisar_pacto(pacto.id, REVISORA)
+        with self.assertRaises(OperacionNoPermitida) as ctx:
+            coord.revisar_pacto(pacto.id, COORDINADORA)
+        self.assertIn("ya no es elegible", str(ctx.exception))
         self.assertEqual(coord.bandeja.mensajes, [])
 
 

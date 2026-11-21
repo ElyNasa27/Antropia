@@ -16,7 +16,10 @@ from encuentros.notion_mapa import (
     INTERPRETACION_MINUTOS, MINUTOS_EXISTENTES_EN_NOTION_REQUIEREN_REVISION, SIN_COLUMNA_EN_NOTION,
 )
 from encuentros.repositorio import solicitud_desde_dict
-from tests.apoyo import DESDE, ENLACE_PRUEBA, REVISORA, hasta_invitaciones, nuevo_escenario, responder
+from tests.apoyo import (
+    COORDINADORA, DESDE, ENLACE_PRUEBA, REVISORA, aceptan_y_se_revisa, hasta_invitaciones,
+    nuevo_escenario, responder, revisar_respuestas,
+)
 from tests.test_a3_pacto import _a3
 
 
@@ -34,15 +37,13 @@ def _hasta_invitaciones_con_aportes_distintos(coord):
     [m] = coord.proponer_matches(DESDE, "e1").propuestas
     coord.aprobar_match(m.id, REVISORA, evidencia_revisada=True, aportes_distintos_revisados=True)
     pacto = coord.proponer_pacto(m.id, DESDE, "p1")
-    coord.revisar_pacto(pacto.id, REVISORA)
+    coord.revisar_pacto(pacto.id, COORDINADORA)
     return m, pacto
 
 
 def _listo_para_confirmar(coord):
     pacto = hasta_invitaciones(coord)
-    responder(coord, pacto, "alba", T.ACEPTA)
-    responder(coord, pacto, "bruno", T.ACEPTA)
-    return pacto
+    return aceptan_y_se_revisa(coord, pacto)
 
 
 class TestDuracionEsLaSumaDeLosAportes(unittest.TestCase):
@@ -109,7 +110,7 @@ class TestDisponiblesDuranteTodaLaDuracion(unittest.TestCase):
         pacto = coord.proponer_pacto(m.id, DESDE, "p1")
         coord.repo.solicitud("sol-bruno").disponibilidad = [Franja("lunes", time(11), time(11, 30))]
         with self.assertRaises(OperacionNoPermitida) as ctx:
-            coord.revisar_pacto(pacto.id, REVISORA)
+            coord.revisar_pacto(pacto.id, COORDINADORA)
         self.assertIn("toda la duración", str(ctx.exception))
         self.assertEqual(coord.bandeja.mensajes, [])
 
@@ -118,7 +119,7 @@ class TestDisponiblesDuranteTodaLaDuracion(unittest.TestCase):
         pacto = _listo_para_confirmar(coord)
         coord.repo.solicitud("sol-alba").disponibilidad = [Franja("lunes", time(18), time(18, 30))]
         with self.assertRaises(OperacionNoPermitida) as ctx:
-            coord.confirmar_pacto(pacto.id, REVISORA, ENLACE_PRUEBA)
+            coord.confirmar_pacto(pacto.id, COORDINADORA, ENLACE_PRUEBA)
         self.assertIn("Alba ya no está disponible durante toda la duración", str(ctx.exception))
         self.assertEqual(pacto.estado, EstadoPacto.LISTO_PARA_CONFIRMAR)
         self.assertEqual(coord.bandeja.para("alba", "confirmación"), [])
@@ -189,7 +190,7 @@ class TestCambiosDeMinutosAnulanLasRevisiones(unittest.TestCase):
         self.assertEqual(pacto.estado, EstadoPacto.FALTA_INFORMACION)
         self.assertIn("cambiaron desde la revisión humana", pacto.faltantes[0])
         with self.assertRaises(OperacionNoPermitida):
-            coord.revisar_pacto(pacto.id, REVISORA)
+            coord.revisar_pacto(pacto.id, COORDINADORA)
         self.assertEqual(coord.bandeja.mensajes, [])
 
     def test_cambio_despues_de_aceptar(self):
@@ -197,7 +198,7 @@ class TestCambiosDeMinutosAnulanLasRevisiones(unittest.TestCase):
         pacto = _listo_para_confirmar(coord)
         coord.repo.solicitud("sol-alba").minutos_por_sesion = 60
         with self.assertRaises(OperacionNoPermitida) as ctx:
-            coord.confirmar_pacto(pacto.id, REVISORA, ENLACE_PRUEBA)
+            coord.confirmar_pacto(pacto.id, COORDINADORA, ENLACE_PRUEBA)
         self.assertIn("ya no coinciden con el pacto v1", str(ctx.exception))
         self.assertEqual(coord.bandeja.para("alba", "confirmación"), [])
 
@@ -208,9 +209,12 @@ class TestAceptacionExplicitaDeAmbos(unittest.TestCase):
         _, pacto = _hasta_invitaciones_con_aportes_distintos(coord)
         responder(coord, pacto, "alba", T.ACEPTA)
         with self.assertRaises(OperacionNoPermitida):
-            coord.confirmar_pacto(pacto.id, REVISORA, ENLACE_PRUEBA)
+            coord.confirmar_pacto(pacto.id, COORDINADORA, ENLACE_PRUEBA)
         responder(coord, pacto, "bruno", T.ACEPTA)
-        coord.confirmar_pacto(pacto.id, REVISORA, ENLACE_PRUEBA)
+        with self.assertRaises(OperacionNoPermitida):   # aún falta revisar las aceptaciones
+            coord.confirmar_pacto(pacto.id, COORDINADORA, ENLACE_PRUEBA)
+        revisar_respuestas(coord, pacto)
+        coord.confirmar_pacto(pacto.id, COORDINADORA, ENLACE_PRUEBA)
         self.assertEqual(pacto.estado, EstadoPacto.CONFIRMADO)
 
     def test_pedir_otro_reparto_es_un_cambio_y_no_una_aceptacion(self):
@@ -220,7 +224,7 @@ class TestAceptacionExplicitaDeAmbos(unittest.TestCase):
         responder(coord, pacto, "bruno", T.CAMBIOS, comentario="prefiero 30 y 30")
         self.assertEqual(pacto.estado, EstadoPacto.CAMBIOS_SOLICITADOS)
         with self.assertRaises(OperacionNoPermitida):
-            coord.confirmar_pacto(pacto.id, REVISORA, ENLACE_PRUEBA)
+            coord.confirmar_pacto(pacto.id, COORDINADORA, ENLACE_PRUEBA)
 
 
 class TestMensajesMuestranElTiempo(unittest.TestCase):
@@ -238,7 +242,7 @@ class TestMensajesMuestranElTiempo(unittest.TestCase):
     def test_confirmaciones(self):
         coord = nuevo_escenario()
         pacto = _listo_para_confirmar(coord)
-        for m in coord.confirmar_pacto(pacto.id, REVISORA, ENLACE_PRUEBA):
+        for m in coord.confirmar_pacto(pacto.id, COORDINADORA, ENLACE_PRUEBA):
             self.assertIn("30 min enseñas tú · 30 min enseña", m.texto)
             self.assertIn("duración total: 60 min", m.texto)
 
@@ -271,7 +275,7 @@ class TestValoresExistentesNoSeConvierten(unittest.TestCase):
         coord.revisar_minutos_por_sesion("sol-bruno", REVISORA, 30, "confirmado con Bruno")
         s = coord.repo.solicitud("sol-bruno")
         self.assertEqual((s.minutos_por_sesion, s.minutos_requieren_revision, s.minutos_revisados_por),
-                         (30, False, REVISORA))
+                         (30, False, "rev-ana"))
         self.assertTrue(any("valor anterior: 60; aporte revisado: 30" in e.detalle for e in coord.repo.bitacora))
         [m] = coord.proponer_matches(DESDE, "e1").propuestas
         self.assertEqual(m.evidencia["duracion_propuesta_min"], 60)

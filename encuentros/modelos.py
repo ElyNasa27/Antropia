@@ -109,6 +109,7 @@ class EstadoPacto(Enum):
     BORRADOR = "borrador (pendiente de revisión humana)"
     INVITACIONES_PREPARADAS = "invitaciones preparadas (esperando respuestas)"
     CAMBIOS_SOLICITADOS = "cambios solicitados"
+    RESPUESTAS_POR_REVISAR = "ambas aceptaciones registradas (pendientes de revisión humana)"
     LISTO_PARA_CONFIRMAR = "listo para confirmar"
     CONFIRMADO = "confirmado"
     CERRADO_SIN_PACTO = "cerrado sin pacto"
@@ -134,7 +135,7 @@ class PropuestaMatch:
     evidencia: dict = field(default_factory=dict) # evidencia de A2 para revisión humana
     clave_ejecucion: str = ""                     # «Clave de ejecución»
     decision: DecisionHumana = DecisionHumana.PENDIENTE
-    decidido_por: str | None = None
+    decidido_por: str | None = None               # id de la persona SIMULADA que decidió
     evidencia_revisada: bool = False
     aportes_distintos_revisados: bool = False      # solo se exige si los aportes difieren
     propuesto_por: str = "A2"
@@ -191,10 +192,13 @@ class VersionPacto:
 @dataclass
 class Respuesta:
     tipo: TipoRespuesta
-    version: int
-    registrado_por: str | None = None
+    version: int                      # versión del pacto a la que responde la persona
+    registrado_por: str | None = None # id de la persona SIMULADA que la registró
     origen: str | None = None         # p. ej. "simulación" en el piloto
     comentario: str | None = None
+    # Revisión humana (simulada) de la respuesta, ligada a una versión concreta.
+    revisada_por: str | None = None
+    version_revisada: int | None = None
 
 
 @dataclass
@@ -207,9 +211,9 @@ class Pacto:
     estado: EstadoPacto = EstadoPacto.BORRADOR
     respuestas: dict[str, Respuesta] = field(default_factory=dict)
     faltantes: list[str] = field(default_factory=list)
-    revisado_por: str | None = None
+    revisado_por: str | None = None               # id de persona SIMULADA
     enlace_videollamada: str | None = None
-    confirmado_por: str | None = None
+    confirmado_por: str | None = None             # id de persona SIMULADA
 
     @property
     def version_actual(self) -> VersionPacto | None:
@@ -230,6 +234,9 @@ class Mensaje:
 
 @dataclass(frozen=True)
 class EventoBitacora:
+    """Entrada de la bitácora del piloto. La bitácora es una lista en memoria y se
+    puede modificar: registra el flujo, pero NO es una prueba inalterable."""
+
     momento_utc: datetime
     actor: str
     accion: str

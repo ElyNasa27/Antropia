@@ -10,7 +10,8 @@ from encuentros.modelos import EstadoPacto, Franja, OperacionNoPermitida, TipoRe
 from encuentros.repositorio import RepositorioMemoria
 from encuentros.zonas import resolver_zona_real
 from tests.apoyo import (
-    DESDE, ENLACE_PRUEBA, REVISORA, ZONAS_REALES, hasta_invitaciones, nuevo_escenario, responder,
+    COORDINADORA, DESDE, ENLACE_PRUEBA, REGISTRO, REVISORA, ZONAS_REALES, aceptan_y_se_revisa,
+    hasta_invitaciones, nuevo_escenario, responder, revisar_respuestas,
 )
 from tests.zonas_simuladas import ZONAS_FIJAS_PILOTO, resolver_zona_simulada
 
@@ -24,14 +25,19 @@ class TestAceptacionDeAmbos(unittest.TestCase):
         responder(coord, pacto, "alba", T.ACEPTA)
         self.assertEqual(pacto.estado, EstadoPacto.INVITACIONES_PREPARADAS)
         with self.assertRaises(OperacionNoPermitida):   # falta la aceptación de Bruno
-            coord.confirmar_pacto(pacto.id, REVISORA, ENLACE_PRUEBA)
+            coord.confirmar_pacto(pacto.id, COORDINADORA, ENLACE_PRUEBA)
 
         responder(coord, pacto, "bruno", T.ACEPTA)
+        self.assertEqual(pacto.estado, EstadoPacto.RESPUESTAS_POR_REVISAR)
+        with self.assertRaises(OperacionNoPermitida):   # falta revisar las aceptaciones
+            coord.confirmar_pacto(pacto.id, COORDINADORA, ENLACE_PRUEBA)
+
+        revisar_respuestas(coord, pacto)
         self.assertEqual(pacto.estado, EstadoPacto.LISTO_PARA_CONFIRMAR)
 
-        confirmaciones = coord.confirmar_pacto(pacto.id, REVISORA, ENLACE_PRUEBA)
+        confirmaciones = coord.confirmar_pacto(pacto.id, COORDINADORA, ENLACE_PRUEBA)
         self.assertEqual(pacto.estado, EstadoPacto.CONFIRMADO)
-        self.assertEqual(pacto.confirmado_por, REVISORA)
+        self.assertEqual(pacto.confirmado_por, "coord-luis")
         self.assertEqual({m.destinatario_id for m in confirmaciones}, {"alba", "bruno"})
         self.assertTrue(all(ENLACE_PRUEBA in m.texto for m in confirmaciones))
         self.assertTrue(all(m.estado == "pendiente de revisión" for m in coord.bandeja.mensajes))
@@ -45,7 +51,7 @@ class TestRechazo(unittest.TestCase):
         responder(coord, pacto, "bruno", T.RECHAZA, comentario="no me interesa ahora")
         self.assertEqual(pacto.estado, EstadoPacto.CERRADO_SIN_PACTO)
         with self.assertRaises(OperacionNoPermitida):
-            coord.confirmar_pacto(pacto.id, REVISORA, ENLACE_PRUEBA)
+            coord.confirmar_pacto(pacto.id, COORDINADORA, ENLACE_PRUEBA)
         self.assertEqual(coord.bandeja.para("alba", "confirmación"), [])
         self.assertEqual(coord.bandeja.para("bruno", "confirmación"), [])
 
@@ -58,7 +64,7 @@ class TestCambioDeHorario(unittest.TestCase):
         responder(coord, pacto, "alba", T.CAMBIOS, comentario="el lunes no puedo")
         self.assertEqual(pacto.estado, EstadoPacto.CAMBIOS_SOLICITADOS)
         with self.assertRaises(OperacionNoPermitida):
-            coord.confirmar_pacto(pacto.id, REVISORA, ENLACE_PRUEBA)
+            coord.confirmar_pacto(pacto.id, COORDINADORA, ENLACE_PRUEBA)
 
         coord.proponer_nueva_version(pacto.id, DESDE)
         v2 = pacto.version_actual
@@ -67,13 +73,13 @@ class TestCambioDeHorario(unittest.TestCase):
         self.assertEqual(pacto.estado, EstadoPacto.BORRADOR)
         self.assertTrue(all(r.tipo is T.PENDIENTE for r in pacto.respuestas.values()))
 
-        coord.revisar_pacto(pacto.id, REVISORA)
+        coord.revisar_pacto(pacto.id, COORDINADORA)
         with self.assertRaises(OperacionNoPermitida):   # una respuesta a la v1 ya no vale
             coord.registrar_respuesta(pacto.id, "bruno", T.ACEPTA, version=1,
-                                      registrado_por=REVISORA, origen="simulación")
-        responder(coord, pacto, "alba", T.ACEPTA)
-        responder(coord, pacto, "bruno", T.ACEPTA)
-        coord.confirmar_pacto(pacto.id, REVISORA, ENLACE_PRUEBA)
+                                      registrado_por=REGISTRO, origen="simulación")
+        aceptan_y_se_revisa(coord, pacto)
+        self.assertTrue(all(r.version_revisada == 2 for r in pacto.respuestas.values()))
+        coord.confirmar_pacto(pacto.id, COORDINADORA, ENLACE_PRUEBA)
         self.assertEqual(pacto.estado, EstadoPacto.CONFIRMADO)
 
     def test_cambio_con_nueva_disponibilidad_aportada_por_la_persona(self):
@@ -98,7 +104,7 @@ class TestCambioDeHorario(unittest.TestCase):
         self.assertEqual(pacto.estado, EstadoPacto.FALTA_INFORMACION)
         self.assertEqual(len(pacto.versiones), 1)
         with self.assertRaises(OperacionNoPermitida):
-            coord.confirmar_pacto(pacto.id, REVISORA, ENLACE_PRUEBA)
+            coord.confirmar_pacto(pacto.id, COORDINADORA, ENLACE_PRUEBA)
 
 
 class TestZonaHoraria(unittest.TestCase):
@@ -125,7 +131,7 @@ class TestZonaHoraria(unittest.TestCase):
         pacto = coord.proponer_pacto(m.id, DESDE, "p1")
         self.assertEqual(pacto.estado, EstadoPacto.FALTA_INFORMACION)
         with self.assertRaises(OperacionNoPermitida):
-            coord.revisar_pacto(pacto.id, REVISORA)
+            coord.revisar_pacto(pacto.id, COORDINADORA)
         self.assertEqual(coord.bandeja.mensajes, [])
 
 
@@ -194,15 +200,14 @@ class TestEnlaceFaltante(unittest.TestCase):
     def _listo(self):
         coord = nuevo_escenario()
         pacto = hasta_invitaciones(coord)
-        responder(coord, pacto, "alba", T.ACEPTA)
-        responder(coord, pacto, "bruno", T.ACEPTA)
+        aceptan_y_se_revisa(coord, pacto)
         return coord, pacto
 
     def test_sin_enlace_no_confirma(self):
         coord, pacto = self._listo()
         for enlace in (None, "", "   "):
             with self.assertRaises(OperacionNoPermitida):
-                coord.confirmar_pacto(pacto.id, REVISORA, enlace)
+                coord.confirmar_pacto(pacto.id, COORDINADORA, enlace)
         self.assertEqual(pacto.estado, EstadoPacto.LISTO_PARA_CONFIRMAR)
         self.assertEqual(coord.bandeja.para("alba", "confirmación"), [])
 
@@ -210,7 +215,7 @@ class TestEnlaceFaltante(unittest.TestCase):
         coord, pacto = self._listo()
         for enlace in ("http://videollamada.example/x", "sala 3", "https://"):
             with self.assertRaises(OperacionNoPermitida):
-                coord.confirmar_pacto(pacto.id, REVISORA, enlace)
+                coord.confirmar_pacto(pacto.id, COORDINADORA, enlace)
 
     def test_un_agente_no_confirma(self):
         coord, pacto = self._listo()
@@ -235,7 +240,7 @@ class TestReglasDeRespuesta(unittest.TestCase):
             responder(coord, pacto, "alba", T.ACEPTA)
         with self.assertRaises(OperacionNoPermitida):
             coord.registrar_respuesta(pacto.id, "bruno", T.ACEPTA, version=1,
-                                      registrado_por=REVISORA, origen="")
+                                      registrado_por=REGISTRO, origen="")
 
     def test_cambio_requiere_detalle(self):
         coord = nuevo_escenario()

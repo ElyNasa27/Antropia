@@ -1,0 +1,8 @@
+{
+  "_nota": "PERSONAS FICTICIAS para la autorización SIMULADA del piloto. No son cuentas reales, no verifican identidades y cualquiera puede editar este archivo.",
+  "personas": [
+    {"id": "rev-ana", "nombre": "Ana (ficticia)", "roles": ["revisora"], "activa": true},
+    {"id": "coord-luis", "nombre": "Luis (ficticio)", "roles": ["coordinadora"], "activa": true},
+    {"id": "reg-marta", "nombre": "Marta (ficticia)", "roles": ["registro_respuestas"], "activa": true}
+  ]
+}

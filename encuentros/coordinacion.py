@@ -1,4 +1,14 @@
-"""Flujo completo con sus reglas. Cada paso humano exige el nombre de quien revisa.
+"""Flujo completo con sus reglas.
+
+Cada paso humano exige un actor del directorio SIMULADO con el rol adecuado
+(ver encuentros/autorizacion_simulada.py). Es una SIMULACIÓN: no verifica
+identidades reales, y la bitácora es una lista modificable, no una prueba.
+
+Reglas de personas (simuladas):
+  - Quien confirma el pacto debe ser una persona distinta de quien aprobó la
+    propuesta. Quien revisó el pacto sí puede confirmarlo.
+  - Antes de confirmar, una persona revisa cada una de las dos aceptaciones, y
+    cada revisión queda ligada a la versión vigente del pacto.
 
 Dos revisiones humanas distintas y separadas:
   1. Respaldo DECLARADO por el participante  -> revisar_respaldo_declarado()
@@ -25,6 +35,7 @@ from datetime import datetime
 from urllib.parse import urlparse
 
 from . import a2_match, a3_pacto
+from .autorizacion_simulada import Accion, ActorAutorizado, DirectorioSimulado
 from .canal import BandejaBorradores
 from .mensajes import redactar_confirmacion, redactar_invitacion
 from .modelos import (
@@ -35,20 +46,11 @@ from .modelos import (
 from .repositorio import RepositorioMemoria
 from .zonas import ResolverZona, ZonaNoDisponible, es_resolver_simulado, resolver_zona_real
 
-AGENTES = {"A2", "A3"}
 ESTADOS_ABIERTOS = {
     EstadoPacto.FALTA_INFORMACION, EstadoPacto.BORRADOR,
     EstadoPacto.INVITACIONES_PREPARADAS, EstadoPacto.CAMBIOS_SOLICITADOS,
-    EstadoPacto.LISTO_PARA_CONFIRMAR,
+    EstadoPacto.RESPUESTAS_POR_REVISAR, EstadoPacto.LISTO_PARA_CONFIRMAR,
 }
-
-
-def _validar_persona(revisor: str | None) -> str:
-    if not revisor or not revisor.strip():
-        raise OperacionNoPermitida("Se requiere el nombre de la persona que revisa.")
-    if revisor.strip().upper() in AGENTES:
-        raise OperacionNoPermitida("Un agente no puede aprobar, registrar ni confirmar; debe hacerlo una persona.")
-    return revisor.strip()
 
 
 def _validar_clave(clave: str | None) -> str:
@@ -75,16 +77,30 @@ class Coordinacion:
         resolver: ResolverZona = resolver_zona_real,
         dias_busqueda: int = a3_pacto.DIAS_BUSQUEDA,
         permitir_zonas_simuladas: bool = False,
+        directorio: DirectorioSimulado | None = None,
     ) -> None:
         if es_resolver_simulado(resolver) and permitir_zonas_simuladas is not True:
             raise ValueError(
                 "La tabla simulada de zonas horarias no puede usarse para encuentros reales."
             )
+        if bandeja.directorio is None:
+            bandeja.directorio = directorio
+        elif bandeja.directorio is not directorio:
+            raise ValueError("La bandeja y la coordinación deben usar el mismo directorio simulado.")
         self.repo = repo
         self.bandeja = bandeja
         self.resolver = resolver
         self.dias_busqueda = dias_busqueda
+        self.directorio = directorio
         self._contador = itertools.count(1)
+
+    def _autorizar(self, actor: object, accion: Accion) -> ActorAutorizado:
+        """Comprobación SIMULADA de rol. No verifica identidades reales."""
+        if self.directorio is None:
+            raise OperacionNoPermitida(
+                f"Para {accion.value} hace falta un directorio de personas simuladas."
+            )
+        return self.directorio.autorizar(actor, accion)
 
     def _id(self, prefijo: str) -> str:
         return f"{prefijo}-{next(self._contador):03d}"
@@ -112,8 +128,8 @@ class Coordinacion:
         self.repo.registrar("sistema", "solicitud registrada", solicitud.id)
 
     # Revisión humana 1: respaldo declarado por el participante
-    def revisar_respaldo_declarado(self, participante_id: str, revisor: str, decision: str, nota: str = "") -> Participante:
-        revisor = _validar_persona(revisor)
+    def revisar_respaldo_declarado(self, participante_id: str, revisor: object, decision: str, nota: str = "") -> Participante:
+        quien = self._autorizar(revisor, Accion.REVISAR_RESPALDO)
         if decision not in (REVISION_APROBADA, REVISION_NO_REQUERIDA, REVISION_PENDIENTE):
             raise OperacionNoPermitida(f"Decisión de revisión no válida: {decision!r}.")
         p = self.repo.participante(participante_id)
@@ -126,8 +142,8 @@ class Coordinacion:
                 "no puede marcarse como «No requerida»."
             )
         p.revision_respaldo = decision
-        p.respaldo_revisado_por = revisor if decision != REVISION_PENDIENTE else None
-        self.repo.registrar(revisor, f"respaldo de {p.nombre}: {decision}", p.id, nota)
+        p.respaldo_revisado_por = quien.id if decision != REVISION_PENDIENTE else None
+        self.repo.registrar(quien.etiqueta, f"respaldo de {p.nombre}: {decision}", p.id, nota)
         return p
 
     def actualizar_respaldo_declarado(self, participante_id: str, texto: str | None) -> Participante:
@@ -140,22 +156,22 @@ class Coordinacion:
 
     # Revisión de minutos: una persona confirma el aporte cuando el valor es dudoso
     def revisar_minutos_por_sesion(
-        self, solicitud_id: str, revisor: str, minutos_aporte: int, nota: str = ""
+        self, solicitud_id: str, revisor: object, minutos_aporte: int, nota: str = ""
     ) -> Solicitud:
         """Una persona escribe cuántos minutos ofrece enseñar quien hizo la solicitud.
 
         Nunca se calcula a partir del valor anterior (que podría ser la duración total):
         el número lo aporta quien revisa, tras confirmarlo con la persona si hace falta.
         """
-        revisor = _validar_persona(revisor)
+        quien = self._autorizar(revisor, Accion.REVISAR_MINUTOS)
         if not isinstance(minutos_aporte, int) or isinstance(minutos_aporte, bool) or minutos_aporte <= 0:
             raise OperacionNoPermitida("Los minutos que ofrece enseñar deben ser un número entero positivo.")
         s = self.repo.solicitud(solicitud_id)
         anterior = s.minutos_por_sesion
         s.minutos_por_sesion = minutos_aporte
-        s.minutos_requieren_revision, s.minutos_revisados_por = False, revisor
+        s.minutos_requieren_revision, s.minutos_revisados_por = False, quien.id
         self.repo.registrar(
-            revisor, "minutos por sesión revisados (aporte de la persona)", s.id,
+            quien.etiqueta, "minutos por sesión revisados (aporte de la persona)", s.id,
             f"valor anterior: {anterior}; aporte revisado: {minutos_aporte}" + (f"; {nota}" if nota else ""),
         )
         return s
@@ -202,11 +218,11 @@ class Coordinacion:
     def aprobar_match(
         self,
         match_id: str,
-        revisor: str,
+        revisor: object,
         evidencia_revisada: bool = False,
         aportes_distintos_revisados: bool = False,
     ) -> PropuestaMatch:
-        revisor = _validar_persona(revisor)
+        quien = self._autorizar(revisor, Accion.APROBAR_PROPUESTA)
         m = self.repo.matches[match_id]
         if m.decision is not DecisionHumana.PENDIENTE:
             raise OperacionNoPermitida(f"La propuesta ya tiene decisión «{m.decision.value}».")
@@ -241,19 +257,19 @@ class Coordinacion:
                 "Los minutos por sesión cambiaron desde que A2 hizo la propuesta; "
                 "la evidencia revisada ya no corresponde. Hace falta una nueva propuesta."
             )
-        m.decision, m.decidido_por, m.evidencia_revisada = DecisionHumana.APROBADA, revisor, True
+        m.decision, m.decidido_por, m.evidencia_revisada = DecisionHumana.APROBADA, quien.id, True
         m.aportes_distintos_revisados = m.requiere_revision_de_aportes
         detalle = "incluye revisión de aportes de minutos distintos" if m.aportes_distintos_revisados else ""
-        self.repo.registrar(revisor, "propuesta aprobada tras revisar la evidencia", m.id, detalle)
+        self.repo.registrar(quien.etiqueta, "propuesta aprobada tras revisar la evidencia", m.id, detalle)
         return m
 
-    def rechazar_match(self, match_id: str, revisor: str, motivo: str = "") -> PropuestaMatch:
-        revisor = _validar_persona(revisor)
+    def rechazar_match(self, match_id: str, revisor: object, motivo: str = "") -> PropuestaMatch:
+        quien = self._autorizar(revisor, Accion.RECHAZAR_PROPUESTA)
         m = self.repo.matches[match_id]
         if m.decision is not DecisionHumana.PENDIENTE:
             raise OperacionNoPermitida(f"La propuesta ya tiene decisión «{m.decision.value}».")
-        m.decision, m.decidido_por = DecisionHumana.RECHAZADA, revisor
-        self.repo.registrar(revisor, "propuesta rechazada", m.id, motivo)
+        m.decision, m.decidido_por = DecisionHumana.RECHAZADA, quien.id
+        self.repo.registrar(quien.etiqueta, "propuesta rechazada", m.id, motivo)
         return m
 
     # 3. A3 sugiere el pacto
@@ -341,15 +357,15 @@ class Coordinacion:
                 )
 
     # 4. Una persona revisa el pacto y se preparan invitaciones individuales
-    def revisar_pacto(self, pacto_id: str, revisor: str) -> list[Mensaje]:
-        revisor = _validar_persona(revisor)
+    def revisar_pacto(self, pacto_id: str, revisor: object) -> list[Mensaje]:
+        quien = self._autorizar(revisor, Accion.REVISAR_PACTO)
         pacto = self._pacto(pacto_id)
         if pacto.estado is not EstadoPacto.BORRADOR:
             raise OperacionNoPermitida(f"Solo se revisa un borrador (estado actual: «{pacto.estado.value}»).")
         self._exigir_elegibles(self.repo.matches[pacto.match_id])
         self._exigir_tiempo_vigente(pacto)
-        pacto.revisado_por, pacto.estado = revisor, EstadoPacto.INVITACIONES_PREPARADAS
-        self.repo.registrar(revisor, f"pacto v{pacto.version_actual.numero} revisado", pacto.id)
+        pacto.revisado_por, pacto.estado = quien.id, EstadoPacto.INVITACIONES_PREPARADAS
+        self.repo.registrar(quien.etiqueta, f"pacto v{pacto.version_actual.numero} revisado", pacto.id)
         return self._preparar("invitación", pacto)
 
     # 5. Cada persona responde por separado
@@ -359,12 +375,14 @@ class Coordinacion:
         participante_id: str,
         tipo: TipoRespuesta,
         version: int,
-        registrado_por: str,
+        registrado_por: object,
         origen: str,
         comentario: str | None = None,
         nueva_disponibilidad: list[Franja] | None = None,
     ) -> Pacto:
-        registrado_por = _validar_persona(registrado_por)
+        """Registra lo que respondió la persona. Una aceptación aún no basta para
+        confirmar: después debe revisarla una persona (revisar_respuesta)."""
+        quien = self._autorizar(registrado_por, Accion.REGISTRAR_RESPUESTA)
         pacto = self._pacto(pacto_id)
         if not origen or not origen.strip():
             raise OperacionNoPermitida("Indica de dónde viene la respuesta (p. ej. «simulación»).")
@@ -382,21 +400,52 @@ class Coordinacion:
         if tipo is TipoRespuesta.CAMBIOS and not (comentario or nueva_disponibilidad):
             raise OperacionNoPermitida("Indica qué cambio solicita la persona.")
 
-        pacto.respuestas[participante_id] = Respuesta(tipo, version, registrado_por, origen.strip(), comentario)
+        pacto.respuestas[participante_id] = Respuesta(tipo, version, quien.id, origen.strip(), comentario)
         nombre = self.repo.participante(participante_id).nombre
-        self.repo.registrar(registrado_por, f"respuesta de {nombre}: {tipo.value} (v{version}, {origen})", pacto.id, comentario or "")
+        self.repo.registrar(quien.etiqueta, f"respuesta de {nombre}: {tipo.value} (v{version}, {origen})", pacto.id, comentario or "")
         if nueva_disponibilidad is not None:
             m = self.repo.matches[pacto.match_id]
             sid = m.solicitud_origen if participante_id == m.participante_a else m.solicitud_candidata
             self.repo.solicitud(sid).disponibilidad = list(nueva_disponibilidad)
-            self.repo.registrar(registrado_por, f"{nombre} actualizó su disponibilidad", sid)
+            self.repo.registrar(quien.etiqueta, f"{nombre} actualizó su disponibilidad", sid)
 
         if tipo is TipoRespuesta.RECHAZA:
             pacto.estado = EstadoPacto.CERRADO_SIN_PACTO
         elif tipo is TipoRespuesta.CAMBIOS:
             pacto.estado = EstadoPacto.CAMBIOS_SOLICITADOS
-        elif self._ambos_aceptan(pacto):
-            pacto.estado = EstadoPacto.LISTO_PARA_CONFIRMAR
+        else:
+            self._actualizar_estado_por_respuestas(pacto)
+        return pacto
+
+    # 5 bis. Revisión humana (simulada) de cada aceptación, ligada a la versión vigente
+    def revisar_respuesta(
+        self, pacto_id: str, participante_id: str, revisor: object, version: int, nota: str = ""
+    ) -> Pacto:
+        """Una persona revisa la aceptación registrada de un participante.
+
+        Solo se revisan aceptaciones (un rechazo o un cambio ya impiden confirmar).
+        La revisión queda ligada a la versión indicada, que debe ser la vigente.
+        """
+        quien = self._autorizar(revisor, Accion.REVISAR_RESPUESTA)
+        pacto = self._pacto(pacto_id)
+        if pacto.estado not in (EstadoPacto.INVITACIONES_PREPARADAS, EstadoPacto.RESPUESTAS_POR_REVISAR):
+            raise OperacionNoPermitida(f"No hay respuestas que revisar (estado: «{pacto.estado.value}»).")
+        if participante_id not in pacto.participantes:
+            raise OperacionNoPermitida(f"{participante_id!r} no participa en este pacto.")
+        vigente = pacto.version_actual.numero
+        if version != vigente:
+            raise OperacionNoPermitida(f"La revisión es para la v{version}, pero la vigente es la v{vigente}.")
+        r = pacto.respuestas[participante_id]
+        nombre = self.repo.participante(participante_id).nombre
+        if r.tipo is not TipoRespuesta.ACEPTA:
+            raise OperacionNoPermitida(f"No hay una aceptación de {nombre} que revisar (respuesta: «{r.tipo.value}»).")
+        if r.version != vigente:
+            raise OperacionNoPermitida(f"La aceptación de {nombre} es de la v{r.version}, no de la vigente v{vigente}.")
+        if r.revisada_por is not None:
+            raise OperacionNoPermitida(f"La aceptación de {nombre} ya fue revisada.")
+        r.revisada_por, r.version_revisada = quien.id, version
+        self.repo.registrar(quien.etiqueta, f"aceptación de {nombre} revisada (v{version})", pacto.id, nota)
+        self._actualizar_estado_por_respuestas(pacto)
         return pacto
 
     @staticmethod
@@ -407,19 +456,40 @@ class Coordinacion:
             for pid in pacto.participantes
         )
 
+    @classmethod
+    def _aceptaciones_revisadas(cls, pacto: Pacto) -> bool:
+        vigente = pacto.version_actual.numero
+        return cls._ambos_aceptan(pacto) and all(
+            pacto.respuestas[pid].revisada_por is not None
+            and pacto.respuestas[pid].version_revisada == vigente
+            for pid in pacto.participantes
+        )
+
+    def _actualizar_estado_por_respuestas(self, pacto: Pacto) -> None:
+        if self._aceptaciones_revisadas(pacto):
+            pacto.estado = EstadoPacto.LISTO_PARA_CONFIRMAR
+        elif self._ambos_aceptan(pacto):
+            pacto.estado = EstadoPacto.RESPUESTAS_POR_REVISAR
+
     # 6 y 7. Una persona confirma, agrega el enlace y se preparan confirmaciones
-    def confirmar_pacto(self, pacto_id: str, revisor: str, enlace: str | None) -> list[Mensaje]:
-        revisor = _validar_persona(revisor)
+    def confirmar_pacto(self, pacto_id: str, revisor: object, enlace: str | None) -> list[Mensaje]:
+        quien = self._autorizar(revisor, Accion.CONFIRMAR_PACTO)
         pacto = self._pacto(pacto_id)
-        if pacto.estado is not EstadoPacto.LISTO_PARA_CONFIRMAR or not self._ambos_aceptan(pacto):
+        if pacto.estado is not EstadoPacto.LISTO_PARA_CONFIRMAR or not self._aceptaciones_revisadas(pacto):
             raise OperacionNoPermitida(
-                f"No se puede confirmar (estado: «{pacto.estado.value}»). "
-                "Hacen falta las dos aceptaciones explícitas de la versión vigente."
+                f"No se puede confirmar (estado: «{pacto.estado.value}»). Hacen falta las dos "
+                "aceptaciones explícitas de la versión vigente, cada una revisada por una persona."
+            )
+        m = self.repo.matches[pacto.match_id]
+        if quien.id == m.decidido_por:
+            raise OperacionNoPermitida(
+                f"{quien.nombre} aprobó la propuesta; el pacto debe confirmarlo otra persona "
+                "(regla de cuatro ojos, simulada)."
             )
         self._exigir_tiempo_vigente(pacto)
         pacto.enlace_videollamada = validar_enlace(enlace)
-        pacto.confirmado_por, pacto.estado = revisor, EstadoPacto.CONFIRMADO
-        self.repo.registrar(revisor, f"pacto v{pacto.version_actual.numero} confirmado", pacto.id)
+        pacto.confirmado_por, pacto.estado = quien.id, EstadoPacto.CONFIRMADO
+        self.repo.registrar(quien.etiqueta, f"pacto v{pacto.version_actual.numero} confirmado", pacto.id)
         return self._preparar("confirmación", pacto)
 
     def _preparar(self, tipo: str, pacto: Pacto) -> list[Mensaje]:

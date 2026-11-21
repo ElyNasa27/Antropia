@@ -1,7 +1,9 @@
 import unittest
 
-from encuentros.modelos import TipoRespuesta as T
-from tests.apoyo import ENLACE_PRUEBA, REVISORA, hasta_invitaciones, nuevo_escenario, responder
+from encuentros.modelos import OperacionNoPermitida
+from tests.apoyo import (
+    COORDINADORA, ENLACE_PRUEBA, REVISORA, aceptan_y_se_revisa, hasta_invitaciones, nuevo_escenario,
+)
 
 TELEFONOS = {"alba": "+00 0000 0001", "bruno": "+00 0000 0002"}
 
@@ -9,9 +11,8 @@ TELEFONOS = {"alba": "+00 0000 0001", "bruno": "+00 0000 0002"}
 def _flujo_confirmado():
     coord = nuevo_escenario()
     pacto = hasta_invitaciones(coord)
-    responder(coord, pacto, "alba", T.ACEPTA)
-    responder(coord, pacto, "bruno", T.ACEPTA)
-    coord.confirmar_pacto(pacto.id, REVISORA, ENLACE_PRUEBA)
+    aceptan_y_se_revisa(coord, pacto)
+    coord.confirmar_pacto(pacto.id, COORDINADORA, ENLACE_PRUEBA)
     return coord
 
 
@@ -41,9 +42,18 @@ class TestBorradores(unittest.TestCase):
     def test_aprobar_un_borrador_no_lo_envia(self):
         coord = _flujo_confirmado()
         m = coord.bandeja.mensajes[0]
-        coord.bandeja.aprobar(m.id, REVISORA)
+        coord.bandeja.aprobar(m.id, COORDINADORA)
         self.assertEqual(m.estado, "aprobado (piloto: no se envía)")
+        self.assertEqual(m.revisado_por, "coord-luis")
         self.assertFalse(hasattr(coord.bandeja, "enviar"))
+
+    def test_aprobar_un_borrador_exige_rol_de_coordinacion(self):
+        coord = _flujo_confirmado()
+        m = coord.bandeja.mensajes[0]
+        for quien in (REVISORA, "Luis (ficticio)", "A3"):
+            with self.assertRaises(OperacionNoPermitida):
+                coord.bandeja.aprobar(m.id, quien)
+        self.assertEqual(m.estado, "pendiente de revisión")
 
     def test_invitacion_incluye_version_y_opciones(self):
         coord = nuevo_escenario()

@@ -91,6 +91,7 @@ ESTADO_PACTO_A_NOTION = {
     EstadoPacto.BORRADOR: "Borrador",
     EstadoPacto.INVITACIONES_PREPARADAS: "Pendiente de aceptación",
     EstadoPacto.CAMBIOS_SOLICITADOS: "Borrador",         # A3 debe preparar otra versión
+    EstadoPacto.RESPUESTAS_POR_REVISAR: "Pendiente de aceptación",  # falta revisar las aceptaciones
     EstadoPacto.LISTO_PARA_CONFIRMAR: "Pendiente de aceptación",  # falta el cierre humano
     EstadoPacto.CONFIRMADO: "Confirmado",
     EstadoPacto.CERRADO_SIN_PACTO: "Cancelado",
@@ -109,6 +110,8 @@ MINUTOS_EXISTENTES_EN_NOTION_REQUIEREN_REVISION = True
 # Datos que el flujo necesita y que hoy NO tienen columna en Notion.
 # No se ha creado nada: son cambios a decidir por una persona.
 SIN_COLUMNA_EN_NOTION = (
+    "Pactos: revisión humana de cada aceptación y versión revisada",
+    "Personas que revisan: hoy son un directorio SIMULADO; en Notion harían falta usuarios verificados",
     "Solicitudes: marca de que «Minutos por sesión» fue revisado como aporte (y quién lo revisó)",
     "Propuestas: revisión humana de aportes de minutos distintos",
     "Pactos: duración total (podría ser una fórmula «Minutos A» + «Minutos B»)",
