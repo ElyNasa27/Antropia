@@ -1,0 +1,31 @@
+# Entorno virtual y cachés de Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+
+# Secretos y configuración local (nunca al repositorio)
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secretos/
+autorizados.local.*
+
+# Datos reales o exportados (en datos/ solo se versionan datos ficticios)
+datos/reales/
+exportaciones/
+*.csv
+*.xlsx
+
+# Registros y respaldos
+*.log
+*.zip
+
+# Herramientas y sistema
+.claude/settings.local.json
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini

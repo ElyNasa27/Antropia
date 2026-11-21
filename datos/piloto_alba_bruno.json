@@ -1,0 +1,61 @@
+{
+  "_nota": "Datos FICTICIOS para el piloto. Teléfonos falsos (+00). La revisión del respaldo NO viene en estos datos: la hace una persona durante el flujo.",
+  "participantes": [
+    {
+      "id": "alba",
+      "alias": "Alba",
+      "autoriza_participar": true,
+      "aptitud": "Apto",
+      "respaldo_declarado": "Hago fotografía con móvil para un blog personal desde hace 3 años (declarado).",
+      "idioma": "Español",
+      "tipo_perfil": "Empírico",
+      "telefono": "+00 0000 0001"
+    },
+    {
+      "id": "bruno",
+      "alias": "Bruno",
+      "autoriza_participar": true,
+      "aptitud": "Apto",
+      "respaldo_declarado": "Doy clases de conversación en inglés a compañeros de trabajo (declarado).",
+      "idioma": "Español",
+      "tipo_perfil": "Tutor",
+      "telefono": "+00 0000 0002"
+    }
+  ],
+  "solicitudes": [
+    {
+      "id": "sol-alba",
+      "participante_id": "alba",
+      "tema_ofrece": ["fotografía con móvil"],
+      "tema_busca": ["inglés conversacional"],
+      "idioma": "Español",
+      "modalidad": "Virtual",
+      "minutos_por_sesion": 30,
+      "zona_horaria": "Europe/Madrid",
+      "disponibilidad": [
+        {"dia": "lunes", "inicio": "18:00", "fin": "20:00"},
+        {"dia": "miércoles", "inicio": "19:00", "fin": "20:30"}
+      ],
+      "estado": "Lista",
+      "objetivo_concreto": "Mantener una conversación básica en inglés",
+      "version_entrada": "v1"
+    },
+    {
+      "id": "sol-bruno",
+      "participante_id": "bruno",
+      "tema_ofrece": ["inglés conversacional"],
+      "tema_busca": ["fotografía con móvil"],
+      "idioma": "Español",
+      "modalidad": "Virtual",
+      "minutos_por_sesion": 30,
+      "zona_horaria": "America/Mexico_City",
+      "disponibilidad": [
+        {"dia": "lunes", "inicio": "11:00", "fin": "13:00"},
+        {"dia": "miércoles", "inicio": "12:00", "fin": "13:30"}
+      ],
+      "estado": "Lista",
+      "objetivo_concreto": "Mejorar mis fotos de producto con el móvil",
+      "version_entrada": "v1"
+    }
+  ]
+}
