@@ -176,10 +176,11 @@ class TestCuatroOjos(unittest.TestCase):
         self.d = _directorio(dos_roles)
         self.ambos = self.d.actuar_como("rev-coord")
         self.luis = self.d.actuar_como("coord-luis")
+        marta = self.d.actuar_como("reg-marta")
         self.coord = nuevo_escenario(directorio=self.d, revisora=self.ambos)
         self.pacto = hasta_invitaciones(self.coord, revisora=self.ambos, coordinadora=self.ambos)
         for pid in self.pacto.participantes:
-            responder(self.coord, self.pacto, pid, T.ACEPTA, registrado_por=self.luis)
+            responder(self.coord, self.pacto, pid, T.ACEPTA, registrado_por=marta)
         revisar_respuestas(self.coord, self.pacto, revisor=self.luis)
 
     def test_quien_aprobo_la_propuesta_no_confirma(self):
@@ -250,6 +251,20 @@ class TestRevisionHumanaDeLasRespuestas(unittest.TestCase):
         for actor in (REVISORA, REGISTRO, "Luis (ficticio)"):
             with self.assertRaises(OperacionNoPermitida):
                 self._revisar("alba", revisor=actor)
+
+    def test_quien_registra_no_puede_revisar_su_propio_registro(self):
+        otra = PersonaSimulada("coord-otra", "Otra coordinadora (ficticia)", frozenset({Rol.COORDINADORA}))
+        d = _directorio(otra)
+        luis, otra = d.actuar_como("coord-luis"), d.actuar_como("coord-otra")
+        coord = nuevo_escenario(directorio=d, revisora=d.actuar_como("rev-ana"))
+        pacto = hasta_invitaciones(coord, revisora=d.actuar_como("rev-ana"), coordinadora=luis)
+        responder(coord, pacto, "alba", T.ACEPTA, registrado_por=luis)   # Luis registra
+        with self.assertRaises(OperacionNoPermitida) as ctx:
+            coord.revisar_respuesta(pacto.id, "alba", luis, 1)           # y no puede revisar
+        self.assertIn("debe revisarla otra persona", str(ctx.exception))
+        self.assertIsNone(pacto.respuestas["alba"].revisada_por)
+        coord.revisar_respuesta(pacto.id, "alba", otra, 1)               # otra persona sí
+        self.assertEqual(pacto.respuestas["alba"].revisada_por, "coord-otra")
 
     def test_una_version_nueva_anula_las_revisiones(self):
         responder(self.coord, self.pacto, "alba", T.ACEPTA)

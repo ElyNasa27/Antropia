@@ -1,18 +1,18 @@
 {
-  "_nota": "Caso original FICTICIO. Teléfonos falsos (+00). Zonas y disponibilidad también son ficticias. Dani ofrece inglés y busca Excel (sería recíproco con Alba) pero NO autoriza participar: A2 no debe usarlo. Cora ofrece fotografía y busca Excel: nadie busca fotografía, así que no hay reciprocidad.",
+  "_nota": "Caso original FICTICIO. Sin teléfonos: no hacen falta. Zonas y disponibilidad también son ficticias. Dani ofrece inglés y busca Excel (sería recíproco con Alba) pero NO autoriza participar: A2 no debe usarlo. Cora ofrece fotografía y busca Excel: nadie busca fotografía, así que no hay reciprocidad.",
   "participantes": [
     {"id": "alba", "alias": "Alba", "autoriza_participar": true, "aptitud": "Apto",
      "respaldo_declarado": "Uso Excel a diario en tareas administrativas (declarado).",
-     "idioma": "Español", "tipo_perfil": "Empírico", "telefono": "+00 0000 0001"},
+     "idioma": "Español", "tipo_perfil": "Empírico"},
     {"id": "bruno", "alias": "Bruno", "autoriza_participar": true, "aptitud": "Apto",
      "respaldo_declarado": "Doy clases de conversación en inglés (declarado).",
-     "idioma": "Español", "tipo_perfil": "Tutor", "telefono": "+00 0000 0002"},
+     "idioma": "Español", "tipo_perfil": "Tutor"},
     {"id": "dani", "alias": "Dani", "autoriza_participar": false, "aptitud": "Sin autorización",
      "respaldo_declarado": "Viví dos años en un país angloparlante (declarado).",
-     "idioma": "Español", "tipo_perfil": "Público general", "telefono": "+00 0000 0003"},
+     "idioma": "Español", "tipo_perfil": "Público general"},
     {"id": "cora", "alias": "Cora", "autoriza_participar": true, "aptitud": "Apto",
      "respaldo_declarado": "",
-     "idioma": "Español", "tipo_perfil": "Público general", "telefono": "+00 0000 0004"}
+     "idioma": "Español", "tipo_perfil": "Público general"}
   ],
   "solicitudes": [
     {"id": "sol-alba", "participante_id": "alba",

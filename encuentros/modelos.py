@@ -51,8 +51,7 @@ class Participante:
     respaldo_revisado_por: str | None = None      # quién decidió (no hay columna en Notion)
     idioma: str | None = None                     # «Idioma» (informativo; se usa el de la solicitud)
     tipo_perfil: str | None = None                # «Tipo de perfil»
-    # Privado: nunca se copia a mensajes, bitácora ni a la otra persona.
-    telefono: str | None = field(default=None, repr=False)
+    # Sin teléfono ni otros datos de contacto: el sistema no los necesita y no los guarda.
 
 
 @dataclass

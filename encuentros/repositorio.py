@@ -42,7 +42,15 @@ def _franjas(lista: list[dict]) -> list[Franja]:
     return [Franja(f["dia"], time.fromisoformat(f["inicio"]), time.fromisoformat(f["fin"])) for f in lista]
 
 
+DATOS_DE_CONTACTO_NO_PERMITIDOS = ("telefono", "teléfono", "phone", "celular", "whatsapp")
+
+
 def participante_desde_dict(d: dict) -> Participante:
+    prohibidos = [k for k in d if k.strip().lower() in DATOS_DE_CONTACTO_NO_PERMITIDOS]
+    if prohibidos:
+        raise ValueError(
+            f"Los datos de {d.get('id', '?')!r} incluyen {prohibidos}: el sistema no guarda teléfonos."
+        )
     return Participante(
         id=d["id"],
         nombre=d["alias"],
@@ -52,7 +60,6 @@ def participante_desde_dict(d: dict) -> Participante:
         revision_respaldo=d.get("revision_respaldo") or REVISION_PENDIENTE,
         idioma=d.get("idioma"),
         tipo_perfil=d.get("tipo_perfil"),
-        telefono=d.get("telefono"),
     )
 
 

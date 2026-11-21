@@ -11,8 +11,7 @@ from tests.apoyo import (
     COORDINADORA, DESDE, ENLACE_PRUEBA, REVISORA, RUTA_ORIGINAL, aceptan_y_se_revisa,
     hasta_invitaciones, nuevo_escenario,
 )
-
-TELEFONOS = ["+00 0000 0001", "+00 0000 0002", "+00 0000 0003", "+00 0000 0004"]
+from tests.test_mensajes import CORREO, TELEFONO, textos_del_flujo
 
 
 def escenario(modificar=None, **kw):
@@ -53,9 +52,9 @@ class TestCasoOriginal(unittest.TestCase):
         coord.confirmar_pacto(pacto.id, COORDINADORA, ENLACE_PRUEBA)
         self.assertEqual(pacto.estado, EstadoPacto.CONFIRMADO)
         self.assertEqual({m.destinatario_id for m in coord.bandeja.mensajes}, {"alba", "bruno"})
-        for m in coord.bandeja.mensajes:
-            for tel in TELEFONOS:
-                self.assertNotIn(tel, m.texto)
+        for texto in textos_del_flujo(coord):   # sin datos de contacto en mensajes ni bitácora
+            self.assertIsNone(TELEFONO.search(texto), texto)
+            self.assertIsNone(CORREO.search(texto), texto)
 
 
 class TestDaniSinAutorizacion(unittest.TestCase):

@@ -1,5 +1,5 @@
 {
-  "_nota": "Datos FICTICIOS para el piloto. Teléfonos falsos (+00). La revisión del respaldo NO viene en estos datos: la hace una persona durante el flujo.",
+  "_nota": "Datos FICTICIOS para el piloto. Sin teléfonos: no hacen falta. La revisión del respaldo NO viene en estos datos: la hace una persona durante el flujo.",
   "participantes": [
     {
       "id": "alba",
@@ -8,8 +8,7 @@
       "aptitud": "Apto",
       "respaldo_declarado": "Hago fotografía con móvil para un blog personal desde hace 3 años (declarado).",
       "idioma": "Español",
-      "tipo_perfil": "Empírico",
-      "telefono": "+00 0000 0001"
+      "tipo_perfil": "Empírico"
     },
     {
       "id": "bruno",
@@ -18,8 +17,7 @@
       "aptitud": "Apto",
       "respaldo_declarado": "Doy clases de conversación en inglés a compañeros de trabajo (declarado).",
       "idioma": "Español",
-      "tipo_perfil": "Tutor",
-      "telefono": "+00 0000 0002"
+      "tipo_perfil": "Tutor"
     }
   ],
   "solicitudes": [

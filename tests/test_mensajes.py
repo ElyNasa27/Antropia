@@ -1,11 +1,16 @@
+import dataclasses
+import re
 import unittest
 
-from encuentros.modelos import OperacionNoPermitida
+from encuentros.modelos import OperacionNoPermitida, Participante
+from encuentros.repositorio import participante_desde_dict
 from tests.apoyo import (
     COORDINADORA, ENLACE_PRUEBA, REVISORA, aceptan_y_se_revisa, hasta_invitaciones, nuevo_escenario,
 )
 
-TELEFONOS = {"alba": "+00 0000 0001", "bruno": "+00 0000 0002"}
+# Patrones de datos de contacto que nunca deben aparecer en mensajes ni en la bitácora.
+TELEFONO = re.compile(r"\+\d{1,3}[\s\d]{6,}|\b\d{9,}\b")
+CORREO = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
 
 
 def _flujo_confirmado():
@@ -16,15 +21,27 @@ def _flujo_confirmado():
     return coord
 
 
+def textos_del_flujo(coord) -> list[str]:
+    textos = [m.texto for m in coord.bandeja.mensajes]
+    textos += [f"{e.actor} {e.accion} {e.referencia} {e.detalle}" for e in coord.repo.bitacora]
+    return textos
+
+
 class TestPrivacidad(unittest.TestCase):
-    def test_ningun_mensaje_ni_bitacora_contiene_telefonos(self):
+    def test_ningun_mensaje_ni_bitacora_contiene_datos_de_contacto(self):
         coord = _flujo_confirmado()
-        textos = [m.texto for m in coord.bandeja.mensajes]
-        textos += [f"{e.accion} {e.referencia} {e.detalle}" for e in coord.repo.bitacora]
-        for texto in textos:
-            for tel in TELEFONOS.values():
-                self.assertNotIn(tel, texto)
-                self.assertNotIn(tel.replace(" ", ""), texto.replace(" ", ""))
+        for texto in textos_del_flujo(coord):
+            self.assertIsNone(TELEFONO.search(texto), texto)
+            self.assertIsNone(CORREO.search(texto), texto)
+
+    def test_el_modelo_no_tiene_campo_de_telefono(self):
+        campos = {f.name for f in dataclasses.fields(Participante)}
+        self.assertFalse(campos & {"telefono", "teléfono", "phone", "celular", "whatsapp"})
+
+    def test_los_datos_con_telefono_se_rechazan(self):
+        for clave in ("telefono", "Teléfono", "phone", "whatsapp"):
+            with self.assertRaises(ValueError):
+                participante_desde_dict({"id": "x", "alias": "X (ficticia)", clave: "+00 0000 0009"})
 
     def test_cada_persona_solo_ve_el_nombre_de_la_otra(self):
         coord = _flujo_confirmado()

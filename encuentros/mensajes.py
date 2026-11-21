@@ -1,7 +1,7 @@
 """Redacción de mensajes individuales.
 
 Las funciones reciben solo el *nombre* de la otra persona, nunca su ficha,
-así que es imposible filtrar su teléfono u otros datos de contacto.
+así que no pueden filtrar datos de contacto (que además el sistema no guarda).
 """
 from __future__ import annotations
 

@@ -81,7 +81,8 @@ con personas **ficticias**. **Qué no es:** autenticación.
 | Registrar respuestas | coordinadora, registro_respuestas |
 
 Reglas adicionales: quien confirma el pacto ≠ quien aprobó la propuesta; las
-dos aceptaciones deben estar revisadas para la versión vigente. En la bitácora
+dos aceptaciones deben estar revisadas para la versión vigente; quien registró
+una respuesta no puede revisarla. En la bitácora
 y en los campos `*_por` queda el id de la persona simulada y el rol usado.
 
 La autenticación real se diseñará aparte (p. ej. usuarios verificados de Notion,
@@ -165,6 +166,12 @@ Recrear el entorno: `py -3.14 -m venv .venv` y
 
 ## Privacidad
 
-El teléfono solo existe en la ficha de su dueño. Los mensajes reciben únicamente
-el nombre de la otra persona; las pruebas verifican que ningún mensaje ni entrada
-de la bitácora contiene teléfonos.
+El sistema **no guarda teléfonos**: el modelo `Participante` no tiene ese campo y
+el cargador de datos rechaza cualquier registro que incluya `telefono`, `phone`,
+`celular` o `whatsapp`. Los mensajes reciben únicamente el nombre de la otra
+persona; las pruebas verifican que ningún mensaje ni entrada de la bitácora
+contiene teléfonos ni correos.
+
+El correo que se pida en el formulario (para enviar el enlace personal de
+Telegram) será privado: no se copiará a mensajes, a la bitácora ni a la otra
+persona. Todavía no forma parte del código.

@@ -1,7 +1,7 @@
 """Máximo de tres propuestas por solicitud y clave de ejecución contra duplicados.
 
 Para superar el límite se generan candidatos FICTICIOS copiando los datos de
-Bruno («Candidato ficticio N»), sin teléfono.
+Bruno («Candidato ficticio N»).
 """
 import copy
 import unittest
@@ -20,7 +20,7 @@ def con_candidatos(n, lunes_para=None):
         for i in range(1, n + 1):
             pid, sid = f"cand{i}", f"sol-cand{i}"
             p = copy.deepcopy(ps["bruno"])
-            p.id, p.nombre, p.telefono = pid, f"Candidato ficticio {i}", None
+            p.id, p.nombre = pid, f"Candidato ficticio {i}"
             s = copy.deepcopy(ss["sol-bruno"])
             s.id, s.participante_id = sid, pid
             if i != lunes_para:

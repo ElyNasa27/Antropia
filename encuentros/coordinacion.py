@@ -9,6 +9,7 @@ Reglas de personas (simuladas):
     propuesta. Quien revisó el pacto sí puede confirmarlo.
   - Antes de confirmar, una persona revisa cada una de las dos aceptaciones, y
     cada revisión queda ligada a la versión vigente del pacto.
+  - Quien registró una respuesta no puede revisarla: debe hacerlo otra persona.
 
 Dos revisiones humanas distintas y separadas:
   1. Respaldo DECLARADO por el participante  -> revisar_respaldo_declarado()
@@ -425,6 +426,7 @@ class Coordinacion:
 
         Solo se revisan aceptaciones (un rechazo o un cambio ya impiden confirmar).
         La revisión queda ligada a la versión indicada, que debe ser la vigente.
+        Quien registró la respuesta no puede ser quien la revisa.
         """
         quien = self._autorizar(revisor, Accion.REVISAR_RESPUESTA)
         pacto = self._pacto(pacto_id)
@@ -443,6 +445,11 @@ class Coordinacion:
             raise OperacionNoPermitida(f"La aceptación de {nombre} es de la v{r.version}, no de la vigente v{vigente}.")
         if r.revisada_por is not None:
             raise OperacionNoPermitida(f"La aceptación de {nombre} ya fue revisada.")
+        if quien.id == r.registrado_por:
+            raise OperacionNoPermitida(
+                f"{quien.nombre} registró la respuesta de {nombre}; debe revisarla otra persona "
+                "(regla simulada)."
+            )
         r.revisada_por, r.version_revisada = quien.id, version
         self.repo.registrar(quien.etiqueta, f"aceptación de {nombre} revisada (v{version})", pacto.id, nota)
         self._actualizar_estado_por_respuestas(pacto)
