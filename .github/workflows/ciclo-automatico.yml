@@ -1,0 +1,52 @@
+name: Ciclo automático de encuentros
+
+# Cada 30 minutos: lee Participantes y las respuestas del formulario en Notion,
+# crea matches, envía correos y crea la sala de Jitsi cuando ambas personas aceptan.
+# Para pausarlo: Settings → Secrets and variables → Actions → Variables →
+# ANTROPIA_ACTIVO distinto de «si» (o desactivar el workflow en la pestaña Actions).
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+    inputs:
+      modo:
+        description: "simulacion = lee Notion sin escribir ni enviar correos"
+        type: choice
+        options: [simulacion, real]
+        default: simulacion
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ciclo-automatico
+  cancel-in-progress: false
+
+jobs:
+  ciclo:
+    if: github.event_name == 'workflow_dispatch' || vars.ANTROPIA_ACTIVO == 'si'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - name: Instalar dependencias
+        run: python -m pip install -r requirements.txt
+      - name: Pruebas
+        run: python -m unittest discover -s tests -t .
+      - name: Ejecutar ciclo
+        env:
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+          ANTROPIA_SMTP_USUARIO: ${{ secrets.ANTROPIA_SMTP_USUARIO }}
+          ANTROPIA_SMTP_CLAVE: ${{ secrets.ANTROPIA_SMTP_CLAVE }}
+          ANTROPIA_CLAVE_CODIGOS: ${{ secrets.ANTROPIA_CLAVE_CODIGOS }}
+          ANTROPIA_FORMULARIO_URL: ${{ vars.ANTROPIA_FORMULARIO_URL }}
+          MODO: ${{ github.event_name == 'workflow_dispatch' && inputs.modo || 'real' }}
+        run: |
+          if [ "$MODO" = "simulacion" ]; then
+            python ciclo_automatico.py --simulacion
+          else
+            python ciclo_automatico.py
+          fi

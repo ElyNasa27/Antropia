@@ -1,15 +1,62 @@
 # Antropia · Coordinación de encuentros (piloto local)
 
 Módulo para coordinar encuentros de intercambio de conocimiento. Es un piloto:
-usa **solo datos ficticios**, **no envía mensajes**, **no crea reuniones** y
-**no escribe en Notion**. Las bases de Notion se han leído solo para alinear
+usa **solo datos ficticios**, **no crea reuniones** y **no escribe en Notion**.
+La única salida automática es el **aviso de match por correo** (ver «Aviso de
+match por correo»); en las pruebas y la demo ese envío es simulado. Las bases de Notion se han leído solo para alinear
 los nombres de los campos (ver `encuentros/notion_mapa.py`).
 
 > **Las personas que revisan son ficticias y sus roles son simulados.** Esto
 > no es autenticación: no se verifica ninguna identidad real y la bitácora es
 > modificable. Ver «Autorización simulada».
 
-## Flujo
+## Modo automático en Notion (producción)
+
+Decisión del 2026-11-21: todo automático, sin revisiones humanas de match,
+pacto, respuestas ni confirmación. Las únicas decisiones humanas que se
+mantienen son «Aptitud» y «Revisión humana del respaldo» en Participantes.
+Lo ejecuta **GitHub Actions cada 30 minutos** (`.github/workflows/ciclo-automatico.yml`
+→ `ciclo_automatico.py` → `encuentros/automatico.py`).
+
+1. Las personas llenan el «Formulario de ingreso Antropia» (base Participantes).
+2. A2 empareja a quienes tienen autorización, Aptitud = Apto, respaldo resuelto y
+   correo válido. Temas: se separan por comas, «;» o « y » y se comparan sin
+   mayúsculas ni tildes, pero enteros. Disponibilidad: texto como
+   «lunes 18:00–20:00» (`encuentros/disponibilidad.py`); lo ilegible no se adivina.
+   Los minutos se leen de «Minutos disponibles» (el formulario los pregunta como
+   minutos de enseñanza).
+3. Cada par se escribe en **Matches [PRUEBA]** y cada persona recibe un correo con
+   la fecha y hora en su zona (al menos 24 h después), los minutos, el enlace del
+   formulario **«Responder a tu match»** y su **código personal**. En Notion solo
+   queda la huella HMAC del código.
+4. Las respuestas del formulario (base **Respuestas al match [PRUEBA]**) se
+   aplican por la huella y se marcan: Aplicada, Código no válido, Ya respondida,
+   Caducada o Sin respuesta.
+5. Con dos «Acepto» y el horario aún válido, se crea una sala de **Jitsi Meet** y
+   se envía la confirmación con el enlace y un `.ics`.
+6. Si la hora llega sin las dos aceptaciones, choca con otro encuentro confirmado
+   o alguien dejó de ser elegible, se propone otro horario con códigos nuevos
+   (máximo 3 horarios). «No me interesa» cierra el match y avisa a la otra persona.
+
+### Puesta en marcha (lo hace la persona responsable)
+
+1. **Notion:** crear una integración interna (notion.so/profile/integrations),
+   conectarla a la página «Piloto - Intercambio de Conocimiento» y copiar su token.
+   En el formulario «Responder a tu match», añadir la pregunta «Respuesta»
+   (obligatoria) y publicarlo con enlace público.
+2. **Gmail:** activar la verificación en dos pasos y crear una contraseña de aplicación.
+3. **GitHub → Settings → Secrets and variables → Actions:**
+   - Secretos: `NOTION_TOKEN`, `ANTROPIA_SMTP_USUARIO`, `ANTROPIA_SMTP_CLAVE`,
+     `ANTROPIA_CLAVE_CODIGOS` (≥ 32 caracteres aleatorios; si cambia, los códigos
+     ya enviados dejan de valer).
+   - Variables: `ANTROPIA_FORMULARIO_URL` (enlace público del formulario) y
+     `ANTROPIA_ACTIVO` = `si` para activar la ejecución cada 30 minutos.
+4. Probar primero en la pestaña **Actions → Ciclo automático → Run workflow →
+   simulacion**: lee Notion, no escribe y no envía correos.
+
+Para pausarlo: `ANTROPIA_ACTIVO` distinto de `si`, o desactivar el workflow.
+
+## Flujo del piloto local (con revisiones humanas simuladas)
 
 1. Cada participante aporta sus datos y su solicitud por separado.
 2. **Revisión humana 1 · respaldo declarado** (`revisar_respaldo_declarado`):
@@ -30,6 +77,8 @@ los nombres de los campos (ver `encuentros/notion_mapa.py`).
      se prefieren los horarios comunes más tempranos. Las rechazadas no cuentan.
    - Resultado por par: «Propuesta», «Sin coincidencia» o «Bloqueada».
    - **Clave de ejecución** obligatoria: repetir una ejecución no crea duplicados.
+   - **Aviso automático por correo**: cada «Propuesta» envía al instante un aviso
+     a las dos personas, sin aprobación manual (ver «Aviso de match por correo»).
 4. **Revisión humana 2 · evidencia de la propuesta** (`aprobar_match` con
    `evidencia_revisada=True`). Al aprobar, se vuelven a comprobar los criterios.
    Si los aportes de minutos son distintos, además hace falta
@@ -50,7 +99,63 @@ los nombres de los campos (ver `encuentros/notion_mapa.py`).
    propuesta**; quien revisó el pacto sí puede confirmarlo.
 10. Se prepara una confirmación para cada participante.
 
-Todos los mensajes quedan en una bandeja de borradores. No existe función de envío.
+Los mensajes del pacto (invitaciones y confirmaciones) quedan en una bandeja de
+borradores y no se envían. El aviso de match por correo sí se envía solo.
+
+## Aviso de match por correo (automático)
+
+Decisión del 2026-11-21: **en cuanto A2 detecta que dos personas son compatibles**
+(resultado «Propuesta»), el sistema redacta y **envía automáticamente** un aviso a
+cada una, al «Correo electrónico» que dejaron en el formulario. No hay revisión
+humana antes del envío. Código: `encuentros/correo.py`.
+
+- **Contenido (solo aviso):** nombre de la otra persona y los temas que cada una
+  comparte. Ningún dato de contacto de la otra persona.
+- **Las dos o ninguna:** si a una de las dos le falta el correo, no se envía a
+  ninguna; `reintentar_avisos_pendientes()` lo envía cuando llega el dato.
+- **Sin duplicados:** cada aviso (propuesta + persona) se envía una sola vez,
+  aunque se repita la ejecución o el reintento.
+- **Fallos:** si el servidor falla, queda en la bitácora como pendiente y el
+  reintento solo envía a quien aún no lo recibió.
+- **Bitácora:** registra el envío con el id de la persona, nunca la dirección.
+- Como A2 puede proponer hasta 3 candidatos por solicitud, una persona puede
+  recibir hasta 3 avisos. Si la revisora rechaza después una propuesta, el aviso
+  ya se envió.
+
+Envío real con **Gmail SMTP** (`EnvioGmailSMTP`, smtp.gmail.com:587 con STARTTLS),
+usando una contraseña de aplicación de Google. Las credenciales se leen de
+variables de entorno y nunca se escriben en el código ni en Git:
+
+| Variable | Contenido |
+|---|---|
+| `ANTROPIA_SMTP_USUARIO` | cuenta de Gmail que envía |
+| `ANTROPIA_SMTP_CLAVE` | contraseña de aplicación (16 caracteres) |
+| `ANTROPIA_SMTP_NOMBRE` | nombre del remitente (opcional; «Comunidad Antropia») |
+
+Las pruebas usan `EnvioSimulado` y nunca se conectan a Gmail. Para activarlo:
+`Coordinacion(..., notificador=NotificadorMatch(AgendaCorreos({...}), EnvioGmailSMTP()))`.
+
+## Formulario y A1 (informe local)
+
+El formulario «Antropia: comparte lo que sabes, aprende lo que sueñas» es una
+vista nativa de Notion sobre **Participantes**: cada respuesta crea una fila.
+`encuentros/formulario.py` representa esa fila tal como llega (columnas en
+`notion_mapa.COLUMNAS_FORMULARIO`), ignora campos internos (Aptitud, Revisión
+humana del respaldo, Faltantes, ID, Minutos disponibles) y rechaza teléfonos.
+El correo es privado y sirve para el aviso automático de match.
+
+**A1** (`encuentros/a1_revision.py`) prepara un **informe local** para la persona
+revisora: autorización, datos obligatorios que faltan, valores no reconocidos,
+zona IANA, minutos, Mixta sin aclarar, respaldo (pendiente de revisión humana)
+y si hay correo (sin mostrarlo). **A1 no escribe ni sugiere nada en Notion**, no
+marca Apto ni Lista, no aprueba respaldos y no inventa datos.
+
+```powershell
+.\.venv\Scripts\python.exe demo_a1.py   # informes de las respuestas ficticias
+```
+
+Todavía no hay lectura automática desde Notion: los datos de prueba están en
+`datos/formulario_ficticio.json`.
 
 ## Autorización simulada (no es autenticación)
 
@@ -119,15 +224,25 @@ con cada decisión ligada a la versión exacta).
 | `encuentros/modelos.py` | Participante, Solicitud, PropuestaMatch, Pacto, Respuesta, Mensaje |
 | `encuentros/a2_match.py` | A2: requisitos, criterios del par, límite de 3, resultados |
 | `encuentros/a3_pacto.py` | A3: primera franja común en UTC que cubre la duración total, o lo que falta |
+| `encuentros/formulario.py` | Respuestas del formulario de Participantes (sin campos internos ni teléfonos) |
+| `encuentros/a1_revision.py` | A1: informe local para la persona revisora (no escribe en Notion) |
+| `demo_a1.py` · `datos/formulario_ficticio.json` | Demo de A1 con 5 respuestas ficticias |
 | `encuentros/autorizacion_simulada.py` | Personas ficticias y roles **simulados** (no es autenticación) |
 | `datos/personas_simuladas.json` | Ana, Luis y Marta (ficticias) |
 | `encuentros/coordinacion.py` | Flujo y reglas: revisiones humanas (simuladas), claves, revisión de respuestas, confirmación |
 | `encuentros/mensajes.py` | Mensajes en la hora local de cada persona |
-| `encuentros/canal.py` | Bandeja de borradores (sin envío) |
+| `encuentros/canal.py` | Bandeja de borradores del pacto (sin envío) |
+| `encuentros/automatico.py` | Ciclo automático: match, códigos, respuestas, Jitsi, confirmación, reprogramación |
+| `encuentros/notion_api.py` | API de Notion (biblioteca estándar) y almacén de Matches/Respuestas [PRUEBA] |
+| `encuentros/disponibilidad.py` | Lectura del texto libre: franjas, zona y temas |
+| `ciclo_automatico.py` · `.github/workflows/ciclo-automatico.yml` | Ejecución cada 30 min en GitHub Actions |
+| `encuentros/correo.py` | Aviso automático de match: agenda privada, redacción, envío simulado y Gmail SMTP |
+| `tests/test_correo.py` | Envío automático a las dos personas, privacidad, sin duplicados, fallos y reintento |
 | `encuentros/repositorio.py` | Almacenamiento en memoria y carga desde JSON |
 | `encuentros/zonas.py` | Zonas horarias reales (zoneinfo + tzdata). Sin tabla simulada |
 | `encuentros/notion_mapa.py` | Columnas y opciones reales de Notion; carencias detectadas |
 | `datos/*.json` | Datos ficticios |
+| `tests/test_formulario.py` · `tests/test_a1.py` | Columnas reales, campos internos, privacidad y A1 |
 | `tests/test_autorizacion_simulada.py` | Roles simulados, cuatro ojos, revisión de respuestas por versión |
 | `tests/test_minutos.py` | Reglas del tiempo: suma, disponibilidad completa, aportes distintos, valores sin revisar |
 | `tests/zonas_simuladas.py` | Tabla simulada, **solo** para pruebas sin tzdata |
@@ -172,6 +287,5 @@ el cargador de datos rechaza cualquier registro que incluya `telefono`, `phone`,
 persona; las pruebas verifican que ningún mensaje ni entrada de la bitácora
 contiene teléfonos ni correos.
 
-El correo que se pida en el formulario (para enviar el enlace personal de
-Telegram) será privado: no se copiará a mensajes, a la bitácora ni a la otra
-persona. Todavía no forma parte del código.
+El correo del formulario es privado: vive solo en `AgendaCorreos`, se usa para
+el aviso de match y no se copia a mensajes, a la bitácora ni a la otra persona.

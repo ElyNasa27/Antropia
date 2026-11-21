@@ -27,6 +27,11 @@ Tiempo del encuentro («Minutos por sesión» = minutos que cada persona ofrece 
     podrían ser la duración total) no se convierten: una persona escribe el aporte
     con revisar_minutos_por_sesion().
   - Si los minutos cambian después de una revisión humana, esa revisión deja de valer.
+
+Aviso de match por correo (decisión del 2026-11-21):
+  - En cuanto A2 detecta dos personas compatibles («Propuesta»), si hay un
+    `notificador`, se envía AUTOMÁTICAMENTE un aviso a cada una (sin aprobación
+    manual). Ver encuentros/correo.py. La bitácora no guarda direcciones.
 """
 from __future__ import annotations
 
@@ -38,6 +43,7 @@ from urllib.parse import urlparse
 from . import a2_match, a3_pacto
 from .autorizacion_simulada import Accion, ActorAutorizado, DirectorioSimulado
 from .canal import BandejaBorradores
+from .correo import ENVIADO, FALLIDO, SIN_CORREO, NotificadorMatch, ResultadoAviso
 from .mensajes import redactar_confirmacion, redactar_invitacion
 from .modelos import (
     REVISION_APROBADA, REVISION_NO_REQUERIDA, REVISION_PENDIENTE, DecisionHumana,
@@ -79,6 +85,7 @@ class Coordinacion:
         dias_busqueda: int = a3_pacto.DIAS_BUSQUEDA,
         permitir_zonas_simuladas: bool = False,
         directorio: DirectorioSimulado | None = None,
+        notificador: NotificadorMatch | None = None,
     ) -> None:
         if es_resolver_simulado(resolver) and permitir_zonas_simuladas is not True:
             raise ValueError(
@@ -93,6 +100,8 @@ class Coordinacion:
         self.resolver = resolver
         self.dias_busqueda = dias_busqueda
         self.directorio = directorio
+        self.notificador = notificador
+        self.avisos_match: dict[str, ResultadoAviso] = {}
         self._contador = itertools.count(1)
 
     def _autorizar(self, actor: object, accion: Accion) -> ActorAutorizado:
@@ -196,7 +205,34 @@ class Coordinacion:
             self.repo.matches[m.id] = m
             self.repo.registrar("A2", "propuesta creada", m.id, m.motivo)
         self.repo.ejecuciones_a2[clave] = res
+        for m in res.propuestas:          # aviso automático por correo
+            self._avisar_match(m)
         return res
+
+    # Aviso automático del match por correo (sin aprobación manual)
+    def _avisar_match(self, m: PropuestaMatch) -> ResultadoAviso | None:
+        if self.notificador is None:
+            return None
+        a = self.repo.participante(m.participante_a)
+        b = self.repo.participante(m.participante_b)
+        res = self.notificador.notificar(m, a, b)
+        previo = self.avisos_match.get(m.id)
+        for pid, estado in res.estado_por_persona.items():
+            if previo is not None and previo.estado_por_persona.get(pid) == ENVIADO:
+                continue                 # ya registrado antes
+            accion = {
+                ENVIADO: "aviso de match enviado por correo",
+                FALLIDO: "aviso de match: falló el envío (pendiente de reintento)",
+                SIN_CORREO: "aviso de match no enviado: falta el correo de alguna de las dos personas",
+            }[estado]
+            self.repo.registrar("sistema", accion, m.id, f"destinatario: {pid}")
+        self.avisos_match[m.id] = res
+        return res
+
+    def reintentar_avisos_pendientes(self) -> list[ResultadoAviso]:
+        """Reintenta los avisos que fallaron o no tenían correo. Nunca reenvía."""
+        pendientes = [mid for mid, r in self.avisos_match.items() if not r.completo]
+        return [r for mid in pendientes if (r := self._avisar_match(self.repo.matches[mid]))]
 
     def _exigir_elegibles(self, m: PropuestaMatch) -> None:
         """Personas y solicitudes se vuelven a comprobar en cada paso (pueden cambiar)."""

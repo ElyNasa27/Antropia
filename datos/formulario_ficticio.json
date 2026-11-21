@@ -1,0 +1,79 @@
+{
+  "_nota": "Respuestas FICTICIAS del formulario de Participantes, con los nombres reales de las columnas de Notion. Los correos usan el dominio reservado example.com. Sin teléfonos.",
+  "respuestas": [
+    {
+      "_referencia": "prueba-01",
+      "Alias": "[PRUEBA] Alba",
+      "Tipo de perfil": "Empírico",
+      "Ofrece": "fotografía con móvil",
+      "Quiere aprender": "inglés conversacional",
+      "Objetivo concreto": "Mantener una conversación básica en inglés",
+      "Idioma": "Español",
+      "Modalidad": "Virtual",
+      "Disponibilidad + zona horaria": "lunes 18:00-20:00; miércoles 19:00-20:30",
+      "Zona horaria": "Europe/Madrid",
+      "Minutos que enseña por encuentro": 30,
+      "Respaldo declarado": "Hago fotografía con móvil para un blog personal desde hace 3 años (declarado).",
+      "Autorización para participar": true,
+      "Correo electrónico": "alba.prueba@example.com"
+    },
+    {
+      "_referencia": "prueba-02",
+      "Alias": "[PRUEBA] Bruno",
+      "Tipo de perfil": "Tutor",
+      "Ofrece": "inglés conversacional",
+      "Quiere aprender": "fotografía con móvil",
+      "Objetivo concreto": "Mejorar mis fotos de producto con el móvil",
+      "Idioma": "Español",
+      "Modalidad": "Mixta",
+      "Acepta videollamada": "Sí",
+      "Disponibilidad + zona horaria": "lunes 11:00-13:00; miércoles 12:00-13:30",
+      "Zona horaria": "America/Mexico_City",
+      "Minutos que enseña por encuentro": 30,
+      "Respaldo declarado": "",
+      "Autorización para participar": true
+    },
+    {
+      "_referencia": "prueba-03",
+      "Alias": "[PRUEBA] Cora",
+      "Tipo de perfil": "Público general",
+      "Ofrece": "fotografía",
+      "Quiere aprender": "Excel",
+      "Idioma": "Español",
+      "Modalidad": "Virtual",
+      "Disponibilidad + zona horaria": "lunes 18:00-20:00",
+      "Autorización para participar": true
+    },
+    {
+      "_referencia": "prueba-04",
+      "Alias": "[PRUEBA] Dani",
+      "Tipo de perfil": "Público general",
+      "Ofrece": "inglés",
+      "Quiere aprender": "Excel",
+      "Objetivo concreto": "Hacer tablas dinámicas",
+      "Idioma": "Español",
+      "Modalidad": "Mixta",
+      "Disponibilidad + zona horaria": "lunes 18:00-20:00",
+      "Zona horaria": "Madrid",
+      "Minutos que enseña por encuentro": 30,
+      "Autorización para participar": false,
+      "Aptitud": "Apto",
+      "Revisión humana del respaldo": "Aprobada"
+    },
+    {
+      "_referencia": "prueba-05",
+      "Alias": "[PRUEBA] Eva",
+      "Tipo de perfil": "Doctora",
+      "Ofrece": "guitarra",
+      "Quiere aprender": "portugués",
+      "Objetivo concreto": "Presentarme en portugués",
+      "Idioma": "Español",
+      "Modalidad": "Presencial",
+      "Disponibilidad + zona horaria": "sábados por la mañana",
+      "Zona horaria": "Marte/Olympus",
+      "Minutos que enseña por encuentro": 22.5,
+      "Autorización para participar": true,
+      "Correo electrónico": "eva-arroba-example"
+    }
+  ]
+}

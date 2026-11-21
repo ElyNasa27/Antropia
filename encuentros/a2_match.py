@@ -27,6 +27,7 @@ no cuentan.
 """
 from __future__ import annotations
 
+import unicodedata
 from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -50,7 +51,9 @@ PROPUESTA, SIN_COINCIDENCIA, BLOQUEADA = "Propuesta", "Sin coincidencia", "Bloqu
 
 
 def _normalizar(texto: str) -> str:
-    return " ".join(texto.lower().split())
+    """Minúsculas, sin tildes y con espacios simples («Inglés» = «ingles»)."""
+    sin = "".join(c for c in unicodedata.normalize("NFD", texto) if unicodedata.category(c) != "Mn")
+    return " ".join(sin.lower().split())
 
 
 # --- Requisitos de la persona -------------------------------------------------

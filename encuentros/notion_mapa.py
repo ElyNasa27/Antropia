@@ -17,9 +17,45 @@ COLUMNAS_PARTICIPANTES = {
     "revision_respaldo": "Revisión humana del respaldo",
     "idioma": "Idioma",
     "tipo_perfil": "Tipo de perfil",
-    # También existen y aún no se usan: «Modalidad», «Minutos disponibles», «Ofrece»,
-    # «Quiere aprender», «Disponibilidad + zona horaria», «Faltantes».
+    # El resto de columnas se usan en el formulario (ver COLUMNAS_FORMULARIO).
+    # «Minutos disponibles» existe pero NO se usa: su significado no es el aporte.
 }
+
+# Columnas reales de Participantes, releídas el 2026-11-21 después de añadir
+# (con aprobación) Objetivo concreto, Acepta videollamada, Zona horaria,
+# Minutos que enseña por encuentro y Correo electrónico, y de eliminar
+# «Autorización para mensajes por Telegram» (estaba vacía).
+COLUMNAS_REALES_PARTICIPANTES = frozenset({
+    "Alias", "Tipo de perfil", "Ofrece", "Quiere aprender", "Objetivo concreto", "Idioma",
+    "Modalidad", "Acepta videollamada", "Disponibilidad + zona horaria", "Zona horaria",
+    "Minutos que enseña por encuentro", "Minutos disponibles", "Respaldo declarado",
+    "Autorización para participar", "Correo electrónico",
+    "Aptitud", "Revisión humana del respaldo", "Faltantes", "ID",
+})
+
+# Preguntas del formulario «Antropia: comparte lo que sabes, aprende lo que sueñas»
+# -> columna de Participantes (campo de encuentros.formulario.RespuestaFormulario).
+COLUMNAS_FORMULARIO = {
+    "alias": "Alias",
+    "tipo_perfil": "Tipo de perfil",
+    "ofrece": "Ofrece",
+    "quiere_aprender": "Quiere aprender",
+    "objetivo_concreto": "Objetivo concreto",
+    "idioma": "Idioma",
+    "modalidad": "Modalidad",
+    "acepta_videollamada": "Acepta videollamada",
+    "dias_y_franjas": "Disponibilidad + zona horaria",   # se usa para días y franjas
+    "zona_horaria": "Zona horaria",
+    "minutos_que_ensena": "Minutos que enseña por encuentro",
+    "respaldo_declarado": "Respaldo declarado",
+    "autoriza_participar": "Autorización para participar",
+    "correo": "Correo electrónico",                       # privado
+}
+
+# Campos internos: nunca forman parte del formulario ni los escribe quien responde.
+CAMPOS_INTERNOS_PARTICIPANTES = frozenset({
+    "Aptitud", "Revisión humana del respaldo", "Faltantes", "ID", "Minutos disponibles",
+})
 
 COLUMNAS_SOLICITUDES = {
     "id": "ID",
@@ -76,6 +112,10 @@ COLUMNAS_PACTOS = {
 OPCIONES = {
     "Participantes.Aptitud": ("Pendiente", "Apto", "Incompleto", "Sin autorización"),
     "Participantes.Revisión humana del respaldo": ("Pendiente", "Aprobada", "No requerida"),
+    "Participantes.Tipo de perfil": ("Titulado", "Empírico", "Tutor", "Mentor", "Emprendedor", "Público general"),
+    "Participantes.Idioma": ("Español", "Inglés", "Portugués"),
+    "Participantes.Modalidad": ("Virtual", "Presencial", "Mixta"),
+    "Participantes.Acepta videollamada": ("Sí", "No", "No aplica"),
     "Solicitudes.Estado": ("Nueva", "Incompleta", "Lista", "Procesada", "Sin coincidencia", "Bloqueada"),
     "Solicitudes.Modalidad": ("Virtual", "Presencial", "Mixta"),
     "Solicitudes.Idioma": ("Español", "Inglés", "Portugués"),
@@ -119,7 +159,8 @@ SIN_COLUMNA_EN_NOTION = (
     "Pactos: versión del pacto (las aceptaciones van ligadas a una versión)",
     "Pactos: zona horaria de cada participante («Zona horaria» es una sola)",
     "Propuestas: solicitud candidata (solo existe «Solicitud origen»)",
-    "Solicitudes: aclaración de si acepta lo virtual cuando la modalidad es «Mixta»",
+    "Solicitudes: aclaración de si acepta lo virtual cuando la modalidad es «Mixta» "
+    "(en Participantes ya existe «Acepta videollamada»)",
     "Solicitudes: disponibilidad estructurada («Franja y zona horaria» es texto libre)",
     "Participantes: quién hizo la revisión humana del respaldo",
 )
