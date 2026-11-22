@@ -6,6 +6,9 @@ name: Ciclo automático de encuentros
 # sin ella no crea ningún enlace.
 # Para pausarlo: Settings → Secrets and variables → Actions → Variables →
 # ANTROPIA_ACTIVO distinto de «si» (o desactivar el workflow en la pestaña Actions).
+# ANTROPIA_ACTIVO=si se exige para el modo REAL también al lanzarlo a mano
+# (ciclo_automatico.py se detiene antes de tocar Notion o el correo). El modo
+# «simulacion» manual funciona siempre: lee Notion sin escribir ni enviar.
 on:
   schedule:
     - cron: "*/30 * * * *"
@@ -46,6 +49,7 @@ jobs:
           ANTROPIA_CLAVE_CODIGOS: ${{ secrets.ANTROPIA_CLAVE_CODIGOS }}
           ANTROPIA_FORMULARIO_URL: ${{ vars.ANTROPIA_FORMULARIO_URL }}
           ANTROPIA_SALAS: ${{ vars.ANTROPIA_SALAS }}
+          ANTROPIA_ACTIVO: ${{ vars.ANTROPIA_ACTIVO }}
           MODO: ${{ github.event_name == 'workflow_dispatch' && inputs.modo || 'real' }}
         run: |
           if [ "$MODO" = "simulacion" ]; then

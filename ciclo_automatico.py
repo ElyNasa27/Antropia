@@ -14,7 +14,13 @@ Variables de entorno (en GitHub: Settings → Secrets and variables → Actions)
                             Siempre una sala aleatoria distinta por pareja, y solo
                             después de que ambas personas aceptan.
 
-  --simulacion  lee Notion pero no escribe nada ni envía correos.
+  ANTROPIA_ACTIVO           (variable) «si» = permite el modo REAL. Se exige en las
+                            ejecuciones programadas Y en las manuales: con cualquier
+                            otro valor (o vacía) el modo real se detiene antes de
+                            leer o escribir en Notion y de enviar correos.
+
+  --simulacion  lee Notion pero no escribe nada ni envía correos. No necesita
+                ANTROPIA_ACTIVO ni las credenciales de Gmail.
 
 El registro solo muestra recuentos y finales de ids: nunca correos ni códigos.
 """
@@ -29,11 +35,26 @@ from encuentros.correo import EnvioGmailSMTP, EnvioSimulado
 from encuentros.notion_api import AlmacenNotion, AlmacenSoloLectura, ClienteNotion
 from encuentros.zonas import datos_de_zonas_disponibles
 
+VALOR_ACTIVO = "si"          # mismo valor exacto que exige el workflow
+SALIDA_REAL_DESACTIVADO = 4
+
+
+def modo_real_permitido() -> bool:
+    return os.environ.get("ANTROPIA_ACTIVO", "") == VALOR_ACTIVO
+
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--simulacion", action="store_true")
     args = parser.parse_args(argv)
+
+    # Tercer cierre: el modo real exige ANTROPIA_ACTIVO=si, también en las ejecuciones
+    # manuales. Se comprueba ANTES de crear el cliente de Notion o el de correo.
+    if not args.simulacion and not modo_real_permitido():
+        print("Modo real desactivado: ANTROPIA_ACTIVO no es «si». No se ha leído ni escrito "
+              "nada en Notion ni se ha enviado ningún correo. Use --simulacion para probar.",
+              file=sys.stderr)
+        return SALIDA_REAL_DESACTIVADO
 
     if not datos_de_zonas_disponibles():
         print("Faltan datos de zonas horarias (tzdata).", file=sys.stderr)

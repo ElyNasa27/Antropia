@@ -81,6 +81,10 @@ Lo ejecuta **GitHub Actions cada 30 minutos** (`.github/workflows/ciclo-automati
    simulacion**: lee Notion, no escribe y no envía correos.
 
 Para pausarlo: `ANTROPIA_ACTIVO` distinto de `si`, o desactivar el workflow.
+Sin `ANTROPIA_ACTIVO` = `si` el **modo real no se ejecuta nunca**, ni programado ni
+lanzado a mano: `ciclo_automatico.py` se detiene (código de salida 4) antes de leer o
+escribir en Notion y de enviar correos. La simulación manual funciona siempre y no
+necesita las credenciales de Gmail.
 
 ## Flujo del piloto local (con revisiones humanas simuladas)
 
