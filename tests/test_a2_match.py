@@ -122,5 +122,98 @@ class TestCriteriosDelPar(unittest.TestCase):
         self.assertIn("solicitud no Lista (estado: Nueva)", res.excluidas["sol-bruno"])
 
 
+class TestTemasPorSignificado(unittest.TestCase):
+    """Reciprocidad con frases distintas (comparación conservadora de temas.py)."""
+
+    def _temas(self, alba_ofrece, alba_busca, bruno_ofrece, bruno_busca):
+        def modificar(ps, ss):
+            ss["sol-alba"].tema_ofrece, ss["sol-alba"].tema_busca = alba_ofrece, alba_busca
+            ss["sol-bruno"].tema_ofrece, ss["sol-bruno"].tema_busca = bruno_ofrece, bruno_busca
+        coord = nuevo_escenario(modificar=modificar)
+        return coord.proponer_matches(DESDE, "e1")
+
+    def test_compatible_en_ambas_direcciones(self):
+        res = self._temas(["crear tablas en Excel para controlar gastos"], ["English"],
+                          ["clases de inglés"], ["aprender a organizar gastos usando Excel"])
+        [m] = res.propuestas
+        self.assertEqual(m.a_ensena, ["crear tablas en Excel para controlar gastos → "
+                                      "aprender a organizar gastos usando Excel"])
+        self.assertEqual(m.b_ensena, ["clases de inglés → English"])
+        self.assertEqual(m.evidencia["tipos_coincidencia"], ["sinónimo", "tema definido"])
+        # Las demás reglas siguen en la evidencia: idioma, modalidad, horario y duración.
+        self.assertEqual(m.evidencia["idioma"], "Español")
+        self.assertEqual(m.evidencia["duracion_propuesta_min"], 60)
+        self.assertFalse(m.es_valida)   # en el piloto local sigue haciendo falta la revisión
+
+    def test_una_sola_direccion_no_genera_match(self):
+        # Bruno busca lo que Alba ofrece, pero lo que Bruno ofrece no tiene relación con lo de Alba.
+        res = self._temas(["crear tablas en Excel para controlar gastos"], ["English"],
+                          ["cocina"], ["aprender a organizar gastos usando Excel"])
+        self.assertEqual(res.propuestas, [])
+        r = res.por_solicitud["sol-alba"]
+        self.assertEqual(r.resultado, "Sin coincidencia")
+        self.assertIn("sin reciprocidad", r.sin_coincidencia["sol-bruno"])
+
+    def test_una_direccion_clara_y_otra_incierta_pide_aclaracion(self):
+        res = self._temas(["Excel"], ["English"],
+                          ["clases de inglés"], ["Excel avanzado"])
+        self.assertEqual(res.propuestas, [])
+        r = res.por_solicitud["sol-alba"]
+        self.assertEqual(r.resultado, "Bloqueada")
+        [aclaracion] = r.bloqueadas["sol-bruno"]
+        self.assertTrue(aclaracion.startswith("requiere aclaración de temas"))
+        self.assertIn("Alba ofrece «Excel» y Bruno busca «Excel avanzado» (nivel incierto", aclaracion)
+
+    def test_alcance_incierto_en_las_dos_direcciones_pide_aclaracion(self):
+        res = self._temas(["Excel"], ["inglés"],
+                          ["inglés para negocios"], ["crear tablas en Excel para controlar gastos"])
+        self.assertEqual(res.propuestas, [])
+        r = res.por_solicitud["sol-alba"]
+        self.assertEqual(r.resultado, "Bloqueada")
+        self.assertEqual(len(r.bloqueadas["sol-bruno"]), 2)
+        self.assertTrue(all("alcance incierto" in x for x in r.bloqueadas["sol-bruno"]))
+
+    def test_incierta_y_sin_relacion_es_sin_reciprocidad(self):
+        res = self._temas(["Excel"], ["guitarra"], ["inglés"], ["Excel avanzado"])
+        self.assertIn("sin reciprocidad", res.por_solicitud["sol-alba"].sin_coincidencia["sol-bruno"])
+
+
+class TestDaniYCoraConFrasesDistintas(unittest.TestCase):
+    """Caso original con temas escritos de otra forma: siguen sin match Dani ni Cora."""
+
+    def _escenario(self):
+        from tests.apoyo import RUTA_ORIGINAL
+
+        def modificar(ps, ss):
+            ss["sol-alba"].tema_ofrece = ["crear tablas en Excel para controlar gastos"]
+            ss["sol-alba"].tema_busca = ["inglés"]
+            ss["sol-bruno"].tema_ofrece = ["English"]
+            ss["sol-bruno"].tema_busca = ["organizar gastos usando Excel"]
+            ss["sol-dani"].tema_ofrece = ["clases de inglés"]            # recíproco con Alba…
+            ss["sol-dani"].tema_busca = ["planillas de Excel para registrar gastos"]
+            ss["sol-cora"].tema_ofrece = ["fotos con el celular"]        # nadie lo busca
+            ss["sol-cora"].tema_busca = ["Excel para controlar gastos"]  # Alba sí lo ofrece
+        return nuevo_escenario(ruta=RUTA_ORIGINAL, modificar=modificar)
+
+    def test_solo_alba_y_bruno(self):
+        res = self._escenario().proponer_matches(DESDE, "e1")
+        [m] = res.propuestas
+        self.assertEqual({m.participante_a, m.participante_b}, {"alba", "bruno"})
+
+    def test_dani_sin_autorizacion_no_se_usa(self):
+        res = self._escenario().proponer_matches(DESDE, "e1")
+        self.assertIn("sin autorización para participar", res.excluidas["sol-dani"])
+        for resumen in res.por_solicitud.values():
+            for grupo in (resumen.propuestas, resumen.sin_coincidencia, resumen.bloqueadas):
+                self.assertNotIn("sol-dani", grupo)
+
+    def test_cora_sin_reciprocidad(self):
+        res = self._escenario().proponer_matches(DESDE, "e1")
+        # Alba ofrece lo que Cora busca, pero nadie busca lo que Cora ofrece.
+        self.assertIn("sin reciprocidad", res.por_solicitud["sol-alba"].sin_coincidencia["sol-cora"])
+        self.assertEqual(res.por_solicitud["sol-cora"].resultado, "Sin coincidencia")
+        self.assertEqual(res.por_solicitud["sol-cora"].propuestas, [])
+
+
 if __name__ == "__main__":
     unittest.main()

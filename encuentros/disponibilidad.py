@@ -12,8 +12,8 @@ Lo que no se pueda leer NO se adivina: se devuelve como «no reconocido» y, si 
 queda ninguna franja, la persona no entra en el emparejamiento.
 
 «Ofrece» y «Quiere aprender» también son texto libre: se separan por comas,
-punto y coma, saltos de línea o « y ». Los temas se comparan sin mayúsculas ni
-tildes («Inglés» = «ingles»), pero tienen que coincidir enteros.
+punto y coma, «/», saltos de línea, « y » o « e ». La comparación entre temas
+está en `temas.py`.
 """
 from __future__ import annotations
 

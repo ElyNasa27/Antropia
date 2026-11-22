@@ -12,7 +12,7 @@
       "Modalidad": "Virtual",
       "Disponibilidad + zona horaria": "lunes 18:00-20:00; miércoles 19:00-20:30",
       "Zona horaria": "Europe/Madrid",
-      "Minutos que enseña por encuentro": 30,
+      "Minutos disponibles": 30,
       "Respaldo declarado": "Hago fotografía con móvil para un blog personal desde hace 3 años (declarado).",
       "Autorización para participar": true,
       "Correo electrónico": "alba.prueba@example.com"
@@ -20,7 +20,7 @@
     {
       "_referencia": "prueba-02",
       "Alias": "[PRUEBA] Bruno",
-      "Tipo de perfil": "Tutor",
+      "Tipo de perfil": ["Tutor", "Mentor"],
       "Ofrece": "inglés conversacional",
       "Quiere aprender": "fotografía con móvil",
       "Objetivo concreto": "Mejorar mis fotos de producto con el móvil",
@@ -29,7 +29,7 @@
       "Acepta videollamada": "Sí",
       "Disponibilidad + zona horaria": "lunes 11:00-13:00; miércoles 12:00-13:30",
       "Zona horaria": "America/Mexico_City",
-      "Minutos que enseña por encuentro": 30,
+      "Minutos disponibles": 30,
       "Respaldo declarado": "",
       "Autorización para participar": true
     },
@@ -55,7 +55,7 @@
       "Modalidad": "Mixta",
       "Disponibilidad + zona horaria": "lunes 18:00-20:00",
       "Zona horaria": "Madrid",
-      "Minutos que enseña por encuentro": 30,
+      "Minutos disponibles": 30,
       "Autorización para participar": false,
       "Aptitud": "Apto",
       "Revisión humana del respaldo": "Aprobada"
@@ -71,7 +71,7 @@
       "Modalidad": "Presencial",
       "Disponibilidad + zona horaria": "sábados por la mañana",
       "Zona horaria": "Marte/Olympus",
-      "Minutos que enseña por encuentro": 22.5,
+      "Minutos disponibles": 22.5,
       "Autorización para participar": true,
       "Correo electrónico": "eva-arroba-example"
     }

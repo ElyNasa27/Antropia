@@ -16,7 +16,7 @@ import re
 from dataclasses import dataclass, field
 
 from .formulario import RespuestaFormulario
-from .notion_mapa import COLUMNAS_FORMULARIO, OPCIONES
+from .notion_mapa import COLUMNAS_FORMULARIO, OPCIONES, SELECCION_MULTIPLE
 from .zonas import ResolverZona, ZonaNoDisponible, datos_de_zonas_disponibles, resolver_zona_real
 
 # Preguntas obligatorias del formulario (campo -> columna de Notion).
@@ -70,6 +70,8 @@ class InformeA1:
 
 
 def _vacio(valor) -> bool:
+    if isinstance(valor, (list, tuple)):
+        return not valor
     return valor is None or (isinstance(valor, str) and not valor.strip())
 
 
@@ -86,11 +88,14 @@ def revisar(r: RespuestaFormulario, resolver: ResolverZona = resolver_zona_real)
 
     for campo, opciones in SELECCIONES.items():
         valor = getattr(r, campo)
-        if not _vacio(valor) and valor not in OPCIONES[opciones]:
-            inf.observaciones.append(
-                f"{COLUMNAS_FORMULARIO[campo]}: valor no reconocido {valor!r} "
-                f"(opciones: {', '.join(OPCIONES[opciones])})"
-            )
+        if _vacio(valor):
+            continue
+        for v in (list(valor) if opciones in SELECCION_MULTIPLE else [valor]):
+            if v not in OPCIONES[opciones]:
+                inf.observaciones.append(
+                    f"{COLUMNAS_FORMULARIO[campo]}: valor no reconocido {v!r} "
+                    f"(opciones: {', '.join(OPCIONES[opciones])})"
+                )
 
     # Modalidad: el piloto solo coordina por videollamada.
     if r.modalidad == "Mixta":
@@ -114,15 +119,15 @@ def revisar(r: RespuestaFormulario, resolver: ResolverZona = resolver_zona_real)
             except ZonaNoDisponible:
                 inf.observaciones.append(f"Zona horaria {zona!r} no existe en la base IANA")
 
-    # Minutos que enseña: número entero positivo.
-    m = r.minutos_que_ensena
+    # Minutos que enseña («Minutos disponibles»): número entero positivo.
+    m, col = r.minutos_que_ensena, COLUMNAS_FORMULARIO["minutos_que_ensena"]
     if not _vacio(m):
         if isinstance(m, bool) or not isinstance(m, (int, float)):
-            inf.observaciones.append(f"Minutos que enseña por encuentro: valor no numérico {m!r}")
+            inf.observaciones.append(f"{col}: valor no numérico {m!r}")
         elif m <= 0:
-            inf.observaciones.append(f"Minutos que enseña por encuentro: debe ser mayor que 0 (es {m})")
+            inf.observaciones.append(f"{col}: debe ser mayor que 0 (es {m})")
         elif m != int(m):
-            inf.observaciones.append(f"Minutos que enseña por encuentro: no es un número entero ({m})")
+            inf.observaciones.append(f"{col}: no es un número entero ({m})")
 
     # Disponibilidad: hoy es texto libre; A1 no la interpreta.
     if not _vacio(r.dias_y_franjas):

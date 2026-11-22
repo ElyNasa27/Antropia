@@ -1,7 +1,9 @@
 name: Ciclo automático de encuentros
 
 # Cada 30 minutos: lee Participantes y las respuestas del formulario en Notion,
-# crea matches, envía correos y crea la sala de Jitsi cuando ambas personas aceptan.
+# crea matches y envía correos. Con la variable ANTROPIA_SALAS=jitsi-prueba (piloto) o
+# =jitsi (reales) crea una sala de Jitsi distinta por pareja cuando ambas aceptan;
+# sin ella no crea ningún enlace.
 # Para pausarlo: Settings → Secrets and variables → Actions → Variables →
 # ANTROPIA_ACTIVO distinto de «si» (o desactivar el workflow en la pestaña Actions).
 on:
@@ -43,6 +45,7 @@ jobs:
           ANTROPIA_SMTP_CLAVE: ${{ secrets.ANTROPIA_SMTP_CLAVE }}
           ANTROPIA_CLAVE_CODIGOS: ${{ secrets.ANTROPIA_CLAVE_CODIGOS }}
           ANTROPIA_FORMULARIO_URL: ${{ vars.ANTROPIA_FORMULARIO_URL }}
+          ANTROPIA_SALAS: ${{ vars.ANTROPIA_SALAS }}
           MODO: ${{ github.event_name == 'workflow_dispatch' && inputs.modo || 'real' }}
         run: |
           if [ "$MODO" = "simulacion" ]; then

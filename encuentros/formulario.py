@@ -5,7 +5,8 @@ respuesta crea una fila con las columnas de `notion_mapa.COLUMNAS_FORMULARIO`.
 Este módulo representa esa fila tal como llega, SIN interpretarla:
 
   - No incluye campos internos (Aptitud, Revisión humana del respaldo, Faltantes,
-    ID, Minutos disponibles): si vienen en los datos, se ignoran y se avisa.
+    ID): si vienen en los datos, se ignoran y se avisa.
+  - «Tipo de perfil» es de selección múltiple: se guarda como tupla de opciones.
   - Rechaza cualquier dato de contacto que no sea el correo (p. ej. teléfono).
   - El correo es privado: no aparece en `repr`, ni en informes, ni en mensajes.
 
@@ -19,6 +20,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .notion_mapa import CAMPOS_INTERNOS_PARTICIPANTES, COLUMNAS_FORMULARIO
+from .modelos import opciones_multiples
 from .repositorio import DATOS_DE_CONTACTO_NO_PERMITIDOS
 
 COLUMNA_A_CAMPO = {columna: campo for campo, columna in COLUMNAS_FORMULARIO.items()}
@@ -29,7 +31,7 @@ class RespuestaFormulario:
     """Una respuesta del formulario, con los nombres de las columnas de Notion."""
 
     alias: str | None = None
-    tipo_perfil: str | None = None
+    tipo_perfil: tuple[str, ...] = ()           # selección múltiple
     ofrece: str | None = None
     quiere_aprender: str | None = None
     objetivo_concreto: str | None = None
@@ -59,7 +61,7 @@ def respuesta_desde_columnas(fila: dict, referencia: str = "") -> RespuestaFormu
         if campo is None or columna in CAMPOS_INTERNOS_PARTICIPANTES:
             ignoradas.append(columna)
             continue
-        valores[campo] = valor
+        valores[campo] = opciones_multiples(valor) if campo == "tipo_perfil" else valor
     return RespuestaFormulario(**valores, referencia=referencia, columnas_ignoradas=tuple(ignoradas))
 
 

@@ -49,6 +49,7 @@ FILA_PARTICIPANTE = {"id": "aaaa-1111", "properties": {
     "Acepta videollamada": sel(None), "Ofrece": t("Fotografía"), "Quiere aprender": t("Inglés"),
     "Disponibilidad + zona horaria": t("lunes 18:00-20:00"), "Zona horaria": t("Europe/Madrid"),
     "Minutos disponibles": {"type": "number", "number": 30},
+    "Tipo de perfil": {"type": "multi_select", "multi_select": [{"name": "Tutor"}, {"name": "Mentor"}]},
 }}
 
 
@@ -76,6 +77,18 @@ class TestCliente(unittest.TestCase):
         esperas = []
         ClienteNotion("x", abrir=http, esperar=esperas.append).consultar("ds")
         self.assertEqual(esperas, [0.0])
+
+
+class TestSeleccionMultiple(unittest.TestCase):
+    def test_tipo_de_perfil_se_lee_como_lista(self):
+        from encuentros.notion_api import _valor
+        self.assertEqual(_valor(FILA_PARTICIPANTE["properties"]["Tipo de perfil"]), ["Tutor", "Mentor"])
+        self.assertEqual(_valor({"type": "multi_select", "multi_select": []}), [])
+
+    def test_leer_participantes_no_falla_con_seleccion_multiple(self):
+        http = HttpFalso([{"results": [FILA_PARTICIPANTE], "has_more": False}])
+        [p] = AlmacenNotion(ClienteNotion("x", abrir=http)).personas()
+        self.assertEqual(p.alias, "Alba")
 
 
 class TestAlmacen(unittest.TestCase):

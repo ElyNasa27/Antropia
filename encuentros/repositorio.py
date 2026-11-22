@@ -10,6 +10,7 @@ from pathlib import Path
 
 from .modelos import (
     REVISION_PENDIENTE, EventoBitacora, Franja, Pacto, Participante, PropuestaMatch, Solicitud,
+    opciones_multiples,
 )
 
 
@@ -59,7 +60,7 @@ def participante_desde_dict(d: dict) -> Participante:
         respaldo_declarado=d.get("respaldo_declarado"),
         revision_respaldo=d.get("revision_respaldo") or REVISION_PENDIENTE,
         idioma=d.get("idioma"),
-        tipo_perfil=d.get("tipo_perfil"),
+        tipo_perfil=opciones_multiples(d.get("tipo_perfil")),
     )
 
 

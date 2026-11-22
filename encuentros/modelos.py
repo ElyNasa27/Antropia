@@ -50,7 +50,7 @@ class Participante:
     revision_respaldo: str = REVISION_PENDIENTE   # «Revisión humana del respaldo»
     respaldo_revisado_por: str | None = None      # quién decidió (no hay columna en Notion)
     idioma: str | None = None                     # «Idioma» (informativo; se usa el de la solicitud)
-    tipo_perfil: str | None = None                # «Tipo de perfil»
+    tipo_perfil: tuple[str, ...] = ()             # «Tipo de perfil» (selección múltiple)
     # Sin teléfono ni otros datos de contacto: el sistema no los necesita y no los guarda.
 
 
@@ -96,6 +96,25 @@ def aportes_distintos(minutos: dict[str, int]) -> bool:
     return len(set(minutos.values())) > 1
 
 
+def opciones_multiples(valor) -> tuple[str, ...]:
+    """Valor de una selección múltiple de Notion como tupla de nombres.
+
+    Acepta la lista de la API (nombres o {"name": ...}), un texto con comas (p. ej.
+    una exportación) o un solo nombre. No corrige ni inventa opciones.
+    """
+    if valor is None:
+        return ()
+    if isinstance(valor, str):
+        valor = valor.split(",")
+    nombres = []
+    for v in valor:
+        n = (v.get("name") if isinstance(v, dict) else v) or ""
+        n = " ".join(str(n).split())
+        if n and n not in nombres:
+            nombres.append(n)
+    return tuple(nombres)
+
+
 class DecisionHumana(Enum):
     """«Decisión humana» en Propuestas."""
     PENDIENTE = "Pendiente"
@@ -138,10 +157,13 @@ class PropuestaMatch:
     evidencia_revisada: bool = False
     aportes_distintos_revisados: bool = False      # solo se exige si los aportes difieren
     propuesto_por: str = "A2"
+    # Cerrada por el ciclo AUTOMÁTICO (p. ej. «No me interesa» o encuentro terminado).
+    # No es una decisión humana: por eso no se expresa con `decision`.
+    cerrada_automaticamente: bool = False
 
     @property
     def activa(self) -> bool:
-        return self.decision is not DecisionHumana.RECHAZADA
+        return not self.cerrada_automaticamente and self.decision is not DecisionHumana.RECHAZADA
 
     @property
     def requiere_revision_de_aportes(self) -> bool:

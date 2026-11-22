@@ -43,8 +43,9 @@ class TestTemas(unittest.TestCase):
                          ["Excel básico", "inglés", "fotografía", "cocina"])
         self.assertEqual(leer_temas(None), [])
 
-    def test_comparacion_sin_tildes_ni_mayusculas_pero_entera(self):
+    def test_comparacion_sin_tildes_ni_mayusculas(self):
         self.assertEqual(temas_en_comun(["Inglés"], ["ingles"]), ["Inglés"])
+        # Nivel no declarado por quien enseña: requiere aclaración, no es coincidencia.
         self.assertEqual(temas_en_comun(["Excel"], ["Excel básico"]), [])
 
 

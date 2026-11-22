@@ -38,7 +38,7 @@ class TestInformesFicticios(unittest.TestCase):
     def test_cora_incompleta(self):
         i = self.inf["prueba-03"]
         self.assertFalse(i.datos_completos)
-        self.assertEqual(i.faltantes, ["Objetivo concreto", "Zona horaria", "Minutos que enseña por encuentro"])
+        self.assertEqual(i.faltantes, ["Objetivo concreto", "Zona horaria", "Minutos disponibles"])
 
     def test_dani_sin_autorizacion_y_datos_internos_ignorados(self):
         i = self.inf["prueba-04"]
@@ -47,6 +47,17 @@ class TestInformesFicticios(unittest.TestCase):
         self.assertIn("Acepta videollamada (la modalidad es Mixta)", i.faltantes)
         self.assertTrue(any("formato Continente/Ciudad" in o for o in i.observaciones))
         self.assertTrue(any("Aptitud" in a for a in i.avisos))   # su «Apto» autoescrito no cuenta
+
+    def test_bruno_con_varios_tipos_de_perfil(self):
+        self.assertFalse(any("Tipo de perfil" in o for o in self.inf["prueba-02"].observaciones))
+
+    def test_tipo_de_perfil_multiple_valores_y_vacio(self):
+        base = {"Alias": "[PRUEBA] X", "Autorización para participar": True}
+        r = respuesta_desde_columnas({**base, "Tipo de perfil": ["Tutor", "Doctora"]})
+        obs = revisar(r).observaciones
+        [o] = [o for o in obs if "Tipo de perfil" in o]        # solo la opción desconocida
+        self.assertTrue(o.startswith("Tipo de perfil: valor no reconocido 'Doctora'"))
+        self.assertIn("Tipo de perfil", revisar(respuesta_desde_columnas({**base, "Tipo de perfil": []})).faltantes)
 
     def test_eva_valores_que_la_revisora_debe_mirar(self):
         obs = " | ".join(self.inf["prueba-05"].observaciones)

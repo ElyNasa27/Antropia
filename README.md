@@ -19,22 +19,46 @@ Lo ejecuta **GitHub Actions cada 30 minutos** (`.github/workflows/ciclo-automati
 → `ciclo_automatico.py` → `encuentros/automatico.py`).
 
 1. Las personas llenan el «Formulario de ingreso Antropia» (base Participantes).
-2. A2 empareja a quienes tienen autorización, Aptitud = Apto, respaldo resuelto y
-   correo válido. Temas: se separan por comas, «;» o « y » y se comparan sin
-   mayúsculas ni tildes, pero enteros. Disponibilidad: texto como
+   No hay base Solicitudes en este modo: la solicitud de cada persona se deriva
+   en memoria de su fila de Participantes (no se escribe en Notion).
+2. **A1 automático** (`validar_a1_automatico`) comprueba temas, idioma, modalidad,
+   disponibilidad legible, zona IANA, «Minutos disponibles» y correo. Quien no los
+   tiene queda fuera y el registro solo dice qué columnas faltan. Es una
+   comprobación automática: no escribe «Aptitud» ni sustituye a las decisiones
+   humanas. «Tipo de perfil» es de selección múltiple y no interviene en el match.
+3. A2 empareja a quienes tienen autorización, Aptitud = Apto y respaldo resuelto.
+   **Temas** (`encuentros/temas.py`, comparación local y conservadora): se separan
+   por comas, «;», «/» o « y » y cuentan si son iguales («Clases de inglés» /
+   «ingles»), sinónimos de la lista `SINONIMOS` («inglés» / «English») o el mismo
+   tema de `TEMAS_DEFINIDOS` («crear tablas en Excel para controlar gastos» /
+   «organizar gastos usando Excel»). Si el nivel o el alcance es incierto
+   («Excel» / «Excel avanzado», «inglés avanzado» / «inglés básico», «Excel» /
+   «Excel para controlar gastos») o parece una errata, el par queda **«requiere
+   aclaración»** y NO se crea el match. Compartir solo una categoría amplia
+   («cocina italiana» / «cocina mexicana») no es coincidencia. Hace falta
+   coincidencia clara **en las dos direcciones**. Disponibilidad: texto como
    «lunes 18:00–20:00» (`encuentros/disponibilidad.py`); lo ilegible no se adivina.
-   Los minutos se leen de «Minutos disponibles» (el formulario los pregunta como
-   minutos de enseñanza).
-3. Cada par se escribe en **Matches [PRUEBA]** y cada persona recibe un correo con
+   Los minutos de enseñanza se leen de «Minutos disponibles».
+4. Cada par se escribe en **Matches [PRUEBA]** y cada persona recibe un correo con
    la fecha y hora en su zona (al menos 24 h después), los minutos, el enlace del
    formulario **«Responder a tu match»** y su **código personal**. En Notion solo
    queda la huella HMAC del código.
-4. Las respuestas del formulario (base **Respuestas al match [PRUEBA]**) se
+5. Las respuestas del formulario (base **Respuestas al match [PRUEBA]**) se
    aplican por la huella y se marcan: Aplicada, Código no válido, Ya respondida,
-   Caducada o Sin respuesta.
-5. Con dos «Acepto» y el horario aún válido, se crea una sala de **Jitsi Meet** y
-   se envía la confirmación con el enlace y un `.ics`.
-6. Si la hora llega sin las dos aceptaciones, choca con otro encuentro confirmado
+   Caducada o Sin respuesta. Cada código es de UNA persona y UNA versión del
+   horario: al proponer otro horario se generan códigos nuevos y los anteriores
+   dejan de valer.
+6. Con dos «Acepto» de la misma versión y el horario aún válido, el match queda
+   «Confirmado». **El sistema no inventa enlaces**: la confirmación (con enlace y
+   `.ics`) se envía solo cuando hay un enlace https real, el que crea Jitsi Meet según
+   `ANTROPIA_SALAS`, o el que una persona escribe en «Enlace Jitsi». Con
+   `jitsi-prueba` (primera fase del piloto) las salas llevan «AntropiaPRUEBA» en el
+   nombre y el correo y el `.ics` dicen que es un enlace de prueba; con `jitsi`
+   son para encuentros reales. En los dos casos cada pareja recibe una sala
+   distinta con 128 bits aleatorios en el nombre, que se crea y se envía solo
+   después de que ambas personas aceptan la misma versión. Quien tenga acceso a la
+   base «Matches [PRUEBA]» puede ver el enlace.
+7. Si la hora llega sin las dos aceptaciones, choca con otro encuentro confirmado
    o alguien dejó de ser elegible, se propone otro horario con códigos nuevos
    (máximo 3 horarios). «No me interesa» cierra el match y avisa a la otra persona.
 
@@ -49,7 +73,9 @@ Lo ejecuta **GitHub Actions cada 30 minutos** (`.github/workflows/ciclo-automati
    - Secretos: `NOTION_TOKEN`, `ANTROPIA_SMTP_USUARIO`, `ANTROPIA_SMTP_CLAVE`,
      `ANTROPIA_CLAVE_CODIGOS` (≥ 32 caracteres aleatorios; si cambia, los códigos
      ya enviados dejan de valer).
-   - Variables: `ANTROPIA_FORMULARIO_URL` (enlace público del formulario) y
+   - Variables: `ANTROPIA_FORMULARIO_URL` (enlace público del formulario),
+     `ANTROPIA_SALAS` = `jitsi-prueba` primero, y `jitsi` para encuentros reales
+     (opcional; vacío = una persona escribe el enlace) y
      `ANTROPIA_ACTIVO` = `si` para activar la ejecución cada 30 minutos.
 4. Probar primero en la pestaña **Actions → Ciclo automático → Run workflow →
    simulacion**: lee Notion, no escribe y no envía correos.
@@ -232,9 +258,10 @@ con cada decisión ligada a la versión exacta).
 | `encuentros/coordinacion.py` | Flujo y reglas: revisiones humanas (simuladas), claves, revisión de respuestas, confirmación |
 | `encuentros/mensajes.py` | Mensajes en la hora local de cada persona |
 | `encuentros/canal.py` | Bandeja de borradores del pacto (sin envío) |
-| `encuentros/automatico.py` | Ciclo automático: match, códigos, respuestas, Jitsi, confirmación, reprogramación |
+| `encuentros/automatico.py` | Ciclo automático: A1 automático, match, códigos, respuestas, confirmación, reprogramación |
 | `encuentros/notion_api.py` | API de Notion (biblioteca estándar) y almacén de Matches/Respuestas [PRUEBA] |
 | `encuentros/disponibilidad.py` | Lectura del texto libre: franjas, zona y temas |
+| `encuentros/temas.py` | Comparación conservadora de temas: igual, sinónimo, tema definido o «requiere aclaración» |
 | `ciclo_automatico.py` · `.github/workflows/ciclo-automatico.yml` | Ejecución cada 30 min en GitHub Actions |
 | `encuentros/correo.py` | Aviso automático de match: agenda privada, redacción, envío simulado y Gmail SMTP |
 | `tests/test_correo.py` | Envío automático a las dos personas, privacidad, sin duplicados, fallos y reintento |

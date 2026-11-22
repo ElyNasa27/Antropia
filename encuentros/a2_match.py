@@ -7,7 +7,11 @@ Requisitos de la PERSONA (base Participantes):
 Requisito de la SOLICITUD (base Solicitudes): «Estado» = Lista.
 
 Criterios del PAR (solicitud origen A ↔ solicitud candidata B):
-  - Reciprocidad: A ofrece algo que B busca y B ofrece algo que A busca.
+  - Reciprocidad: A ofrece algo que B busca Y B ofrece algo que A busca, las dos
+    con claridad (igual, sinónimo o tema definido; ver temas.py). Si en alguna
+    dirección solo hay temas relacionados con alcance o nivel incierto, el par
+    queda «Bloqueada» con «requiere aclaración»: no se propone. Si alguna
+    dirección no tiene relación alguna, es «sin reciprocidad».
   - Mismo idioma.
   - Modalidad compatible con videollamada (Virtual, o Mixta con aceptación
     explícita de lo virtual; si no consta, se pide aclaración).
@@ -41,6 +45,7 @@ from .modelos import (
     REVISION_APROBADA, REVISION_NO_REQUERIDA, PerfilEncuentro, Participante,
     PropuestaMatch, Solicitud, aportes_distintos,
 )
+from .temas import FUERZA, REQUIERE_ACLARACION, comparar, coincidencias
 from .zonas import ResolverZona
 
 MAX_CANDIDATOS_POR_SOLICITUD = 3
@@ -102,8 +107,8 @@ def motivos_solicitud_no_lista(s: Solicitud) -> list[str]:
 # --- Criterios del par ----------------------------------------------------------
 
 def temas_en_comun(ofrece: Iterable[str], busca: Iterable[str]) -> list[str]:
-    buscados = {_normalizar(b) for b in busca}
-    return [o for o in ofrece if _normalizar(o) in buscados]
+    """Etiquetas de los temas ofrecidos que coinciden con lo buscado (ver temas.py)."""
+    return [c.etiqueta for c in coincidencias(ofrece, busca)]
 
 
 def acepta_virtual(s: Solicitud) -> bool | None:
@@ -134,6 +139,11 @@ class EvaluacionPar:
     motivos: list[str] = field(default_factory=list)          # sin coincidencia
     datos_pendientes: list[str] = field(default_factory=list)  # bloqueada
     primer_inicio: datetime | None = None
+    aclaraciones_temas: list[str] = field(default_factory=list)  # parte de datos_pendientes
+
+    @property
+    def requiere_aclaracion_de_temas(self) -> bool:
+        return bool(self.aclaraciones_temas)
 
 
 def evaluar_par(
@@ -143,10 +153,21 @@ def evaluar_par(
     incompatibles: list[str] = []
     pendientes: list[str] = []
 
-    a_ensena = temas_en_comun(sa.tema_ofrece, sb.tema_busca)
-    b_ensena = temas_en_comun(sb.tema_ofrece, sa.tema_busca)
-    if not (a_ensena and b_ensena):
-        incompatibles.append("sin reciprocidad")
+    ra = comparar(sa.tema_ofrece, sb.tema_busca)
+    rb = comparar(sb.tema_ofrece, sa.tema_busca)
+    ca, cb = ra.coincidencias, rb.coincidencias
+    a_ensena, b_ensena = [c.etiqueta for c in ca], [c.etiqueta for c in cb]
+    aclaraciones: list[str] = []
+    if not (ra.cubre or ra.requiere_aclaracion) or not (rb.cubre or rb.requiere_aclaracion):
+        incompatibles.append("sin reciprocidad")      # una dirección no tiene relación alguna
+    else:
+        for quien, otra, r in ((pa, pb, ra), (pb, pa, rb)):
+            if r.requiere_aclaracion:                 # sin coincidencia clara en esta dirección
+                aclaraciones += [
+                    f"{REQUIERE_ACLARACION} de temas: {quien.nombre} ofrece «{x.ofrece}» y "
+                    f"{otra.nombre} busca «{x.busca}» ({x.motivo})" for x in r.aclaraciones
+                ]
+        pendientes.extend(aclaraciones)
 
     if not sa.idioma or not sb.idioma:
         for p, s in ((pa, sa), (pb, sb)):
@@ -188,13 +209,16 @@ def evaluar_par(
     if incompatibles:
         return EvaluacionPar(SIN_COINCIDENCIA, motivos=incompatibles, datos_pendientes=pendientes)
     if pendientes:
-        return EvaluacionPar(BLOQUEADA, datos_pendientes=pendientes)
+        return EvaluacionPar(BLOQUEADA, datos_pendientes=pendientes, aclaraciones_temas=aclaraciones)
     minutos = {pa.id: a.minutos, pb.id: b.minutos}
     return EvaluacionPar(
         PROPUESTA,
         evidencia={
             "coincidencia_a_b": a_ensena,
             "coincidencia_b_a": b_ensena,
+            # Tipo de cada coincidencia (igual, sinónimo, tema definido) y la más indirecta.
+            "tipos_coincidencia": sorted({c.tipo for c in ca + cb}, key=FUERZA.get),
+            "fuerza_temas": max(min(FUERZA[c.tipo] for c in ca), min(FUERZA[c.tipo] for c in cb)),
             "idioma": sa.idioma,
             "modalidad": MODALIDAD_SOPORTADA,
             "horario_comun_utc": inicios[0].isoformat(),
@@ -265,7 +289,7 @@ def ejecutar_a2(
     for sa in elegibles:
         pa = participantes[sa.participante_id]
         resumen = res.por_solicitud.setdefault(sa.id, ResumenSolicitud())
-        validas: list[tuple[datetime, str, Solicitud, EvaluacionPar]] = []
+        validas: list[tuple[int, datetime, str, Solicitud, EvaluacionPar]] = []
         for sb in elegibles:
             if sb.participante_id == sa.participante_id:
                 continue
@@ -276,13 +300,14 @@ def ejecutar_a2(
             pb = participantes[sb.participante_id]
             ev = evaluar_par(pa, sa, pb, sb, desde_utc, resolver, dias)
             if ev.resultado == PROPUESTA:
-                validas.append((ev.primer_inicio, sb.id, sb, ev))
+                validas.append((ev.evidencia["fuerza_temas"], ev.primer_inicio, sb.id, sb, ev))
             elif ev.resultado == BLOQUEADA:
                 resumen.bloqueadas[sb.id] = ev.datos_pendientes
             else:
                 resumen.sin_coincidencia[sb.id] = ev.motivos
 
-        for _, _, sb, ev in sorted(validas, key=lambda t: (t[0], t[1])):
+        # Primero las coincidencias de temas más fuertes; luego el horario más próximo.
+        for _, _, _, sb, ev in sorted(validas, key=lambda t: (t[0], t[1], t[2])):
             if uso[sa.id] >= maximo or uso[sb.id] >= maximo:
                 resumen.omitidas_por_limite.append(sb.id)
                 continue

@@ -109,6 +109,8 @@ def _valor(prop: dict | None):
         return _texto(prop)
     if tipo in ("select", "status"):
         return v.get("name") if v else None
+    if tipo == "multi_select":                     # p. ej. «Tipo de perfil»
+        return [x.get("name") for x in v or [] if x.get("name")]
     if tipo == "date":
         return datetime.fromisoformat(v["start"].replace("Z", "+00:00")) if v and v.get("start") else None
     if tipo == "relation":

@@ -6,6 +6,13 @@ Variables de entorno (en GitHub: Settings → Secrets and variables → Actions)
   ANTROPIA_SMTP_CLAVE       contraseña de aplicación de Google           (secreto)
   ANTROPIA_CLAVE_CODIGOS    clave larga y aleatoria para las huellas     (secreto)
   ANTROPIA_FORMULARIO_URL   enlace público de «Responder a tu match»     (variable)
+  ANTROPIA_SALAS            (variable, opcional) cómo se crea la sala al confirmar:
+                              vacío         el sistema no crea enlaces; una persona
+                                            escribe el enlace en «Enlace Jitsi»
+                              jitsi-prueba  sala de Jitsi Meet marcada «PRUEBA» (piloto)
+                              jitsi         sala de Jitsi Meet para encuentros reales
+                            Siempre una sala aleatoria distinta por pareja, y solo
+                            después de que ambas personas aceptan.
 
   --simulacion  lee Notion pero no escribe nada ni envía correos.
 
@@ -17,7 +24,7 @@ import argparse
 import os
 import sys
 
-from encuentros.automatico import Ciclo, Configuracion
+from encuentros.automatico import SALAS_JITSI, SALAS_PRUEBA, Ciclo, Configuracion, proveedor_de_salas
 from encuentros.correo import EnvioGmailSMTP, EnvioSimulado
 from encuentros.notion_api import AlmacenNotion, AlmacenSoloLectura, ClienteNotion
 from encuentros.zonas import datos_de_zonas_disponibles
@@ -48,8 +55,15 @@ def main(argv: list[str] | None = None) -> int:
         almacen, envio = AlmacenSoloLectura(almacen), EnvioSimulado()
     else:
         envio = EnvioGmailSMTP()
+    salas = os.environ.get("ANTROPIA_SALAS", "").strip().lower()
+    try:
+        proveedor = proveedor_de_salas(salas)
+    except ValueError as e:
+        print(str(e), file=sys.stderr)
+        return 2
     cfg = Configuracion(url_formulario=os.environ["ANTROPIA_FORMULARIO_URL"].strip(),
-                        clave_codigos=os.environ["ANTROPIA_CLAVE_CODIGOS"])
+                        clave_codigos=os.environ["ANTROPIA_CLAVE_CODIGOS"],
+                        nueva_sala=proveedor)
     r = Ciclo(almacen, envio, cfg).ejecutar()
 
     print(f"Modo: {'SIMULACIÓN (no escribe ni envía)' if args.simulacion else 'real'}")
@@ -57,6 +71,11 @@ def main(argv: list[str] | None = None) -> int:
     print(f"Matches nuevos: {r.matches_nuevos} · confirmados: {r.confirmados} · "
           f"reprogramados: {r.reprogramados} · cerrados: {r.cerrados}")
     print(f"Respuestas procesadas: {r.respuestas or 'ninguna'}")
+    print(f"A1 automático, personas con datos por completar: {r.a1_con_problemas} · "
+          f"pares con temas por aclarar: {r.pares_por_aclarar} · "
+          f"confirmados sin enlace: {r.confirmados_sin_enlace}")
+    modo_salas = {SALAS_PRUEBA: "Jitsi Meet, enlaces de PRUEBA", SALAS_JITSI: "Jitsi Meet, encuentros reales"}
+    print(f"Salas de videollamada: {modo_salas.get(salas, 'enlace escrito por una persona')}")
     print(f"Correos {'simulados' if args.simulacion else 'enviados'}: {r.correos_enviados} · "
           f"errores de envío: {r.errores_envio}")
     for a in r.avisos:

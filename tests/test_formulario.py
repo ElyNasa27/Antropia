@@ -5,6 +5,7 @@ from pathlib import Path
 from encuentros.formulario import RespuestaFormulario, cargar_respuestas_json, respuesta_desde_columnas
 from encuentros.notion_mapa import (
     CAMPOS_INTERNOS_PARTICIPANTES, COLUMNAS_FORMULARIO, COLUMNAS_REALES_PARTICIPANTES, OPCIONES,
+    SELECCION_MULTIPLE,
 )
 
 RUTA = Path(__file__).resolve().parent.parent / "datos" / "formulario_ficticio.json"
@@ -19,9 +20,21 @@ class TestColumnasDelFormulario(unittest.TestCase):
         for interno in ("Aptitud", "Revisión humana del respaldo", "Faltantes", "ID"):
             self.assertIn(interno, CAMPOS_INTERNOS_PARTICIPANTES)
 
-    def test_minutos_disponibles_no_se_usa(self):
-        self.assertNotIn("Minutos disponibles", COLUMNAS_FORMULARIO.values())
-        self.assertIn("Minutos que enseña por encuentro", COLUMNAS_FORMULARIO.values())
+    def test_minutos_de_ensenanza_en_minutos_disponibles(self):
+        # «Minutos que enseña por encuentro» ya no existe en Notion (leído el 2026-11-21).
+        self.assertEqual(COLUMNAS_FORMULARIO["minutos_que_ensena"], "Minutos disponibles")
+        self.assertNotIn("Minutos que enseña por encuentro", COLUMNAS_REALES_PARTICIPANTES)
+        self.assertNotIn("Minutos disponibles", CAMPOS_INTERNOS_PARTICIPANTES)
+
+    def test_tipo_de_perfil_es_seleccion_multiple(self):
+        self.assertIn("Participantes.Tipo de perfil", SELECCION_MULTIPLE)
+        r = respuesta_desde_columnas({"Alias": "[PRUEBA] X", "Tipo de perfil": ["Tutor", "Mentor"]})
+        self.assertEqual(r.tipo_perfil, ("Tutor", "Mentor"))
+        r = respuesta_desde_columnas({"Alias": "[PRUEBA] X", "Tipo de perfil": "Tutor, Mentor"})
+        self.assertEqual(r.tipo_perfil, ("Tutor", "Mentor"))
+        r = respuesta_desde_columnas({"Alias": "[PRUEBA] X", "Tipo de perfil": [{"name": "Empírico"}]})
+        self.assertEqual(r.tipo_perfil, ("Empírico",))
+        self.assertEqual(respuesta_desde_columnas({"Alias": "[PRUEBA] X"}).tipo_perfil, ())
 
     def test_columna_de_telegram_eliminada(self):
         self.assertNotIn("Autorización para mensajes por Telegram", COLUMNAS_REALES_PARTICIPANTES)

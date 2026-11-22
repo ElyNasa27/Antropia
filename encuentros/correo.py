@@ -58,6 +58,8 @@ def _una_linea(texto: str) -> str:
 
 def _lista(temas: list[str]) -> str:
     temas = [_una_linea(t) for t in temas if t and t.strip()]
+    # «Excel avanzado → Excel básico» (coincidencia no exacta, ver temas.py)
+    temas = [t.replace(" → ", " (para «", 1) + "»)" if " → " in t else t for t in temas]
     if not temas:
         return "—"
     return temas[0] if len(temas) == 1 else ", ".join(temas[:-1]) + " y " + temas[-1]

@@ -4,14 +4,22 @@ Decisiones del 2026-11-21 (todo automático, sin revisiones humanas de match,
 pacto, respuestas ni confirmación; las únicas decisiones humanas siguen siendo
 «Aptitud» y «Revisión humana del respaldo» en Participantes):
 
-  1. A2 empareja a las personas elegibles de Participantes.
+  0. A1 AUTOMÁTICO comprueba los datos de cada persona (temas, idioma, modalidad,
+     disponibilidad legible, zona horaria IANA, minutos y correo). Es una
+     comprobación automática: no escribe «Aptitud» ni nada en Notion y no
+     sustituye a las decisiones humanas de «Aptitud» y del respaldo.
+  1. A2 empareja a las personas elegibles de Participantes (temas comparados de
+     forma conservadora; si hay que aclarar un tema, NO se crea el match).
   2. Por cada par compatible se crea una fila en «Matches [PRUEBA]» y se envía a
      cada persona un correo con la fecha/hora propuesta (en su zona), los minutos
      y su CÓDIGO PERSONAL para responder en el formulario «Responder a tu match».
   3. Cada respuesta del formulario se aplica al match (se busca por la huella del
      código; el código nunca se guarda).
-  4. Si ambas aceptan y el horario sigue siendo válido, se crea una sala de Jitsi
-     y se envía la confirmación con el enlace y un archivo de calendario (.ics).
+  4. Si ambas aceptan la MISMA versión y el horario sigue siendo válido, el match
+     queda confirmado. La confirmación (con el enlace y un .ics) se envía solo
+     cuando hay un enlace real: el que crea el proveedor de salas configurado
+     (`Configuracion.nueva_sala`, desactivado por defecto) o el que una persona
+     escribe en «Enlace Jitsi». El sistema nunca inventa un enlace.
   5. Si el horario pasó, ya no está libre o choca con otro encuentro confirmado,
      se propone otro horario (con códigos nuevos). Si alguien responde «No me
      interesa», el match se cierra y se avisa a la otra persona.
@@ -32,9 +40,11 @@ from typing import Callable, Protocol
 from . import a2_match
 from .correo import CorreoMatch, ErrorEnvio, ServicioEnvio, correo_valido
 from .disponibilidad import leer_disponibilidad, leer_temas
+from .temas import SEPARADOR_ETIQUETA
 from .modelos import (
-    DIAS_SEMANA, REVISION_APROBADA, DecisionHumana, Participante, PropuestaMatch, Solicitud,
+    DIAS_SEMANA, REVISION_APROBADA, Participante, PropuestaMatch, Solicitud,
 )
+from .temas import REQUIERE_ACLARACION
 from .zonas import ResolverZona, ZonaNoDisponible, nombre_legible, resolver_zona_real
 
 # Estados y respuestas, con los mismos textos que las opciones de Notion
@@ -147,8 +157,44 @@ def huella(codigo: str, clave_secreta: str) -> str:
     return hmac.new(clave_secreta.encode(), codigo.encode(), hashlib.sha256).hexdigest()
 
 
-def nueva_sala_jitsi() -> str:
-    return "https://meet.jit.si/Antropia" + secrets.token_hex(10)
+SALAS_PRUEBA, SALAS_JITSI = "jitsi-prueba", "jitsi"   # valores de ANTROPIA_SALAS
+PREFIJO_JITSI = "https://meet.jit.si/"
+PREFIJO_SALA_PRUEBA = "AntropiaPRUEBA"
+
+
+def nueva_sala_jitsi(prueba: bool = False) -> str:
+    """Enlace de una sala de Jitsi Meet con un nombre aleatorio difícil de adivinar.
+
+    El nombre lleva 128 bits aleatorios (32 caracteres hexadecimales de `secrets`).
+    La sala no existe hasta que entra la primera persona. Las salas de prueba
+    llevan «AntropiaPRUEBA» en el nombre para distinguirlas.
+    """
+    return PREFIJO_JITSI + (PREFIJO_SALA_PRUEBA if prueba else "Antropia") + secrets.token_hex(16)
+
+
+def nueva_sala_jitsi_prueba() -> str:
+    return nueva_sala_jitsi(prueba=True)
+
+
+def es_enlace_de_prueba(enlace: str | None) -> bool:
+    return bool(enlace) and enlace.startswith(PREFIJO_JITSI + PREFIJO_SALA_PRUEBA)
+
+
+def proveedor_de_salas(valor: str | None) -> Callable[[], str] | None:
+    """Traduce ANTROPIA_SALAS: vacío = sin salas automáticas; «jitsi-prueba»; «jitsi»."""
+    v = (valor or "").strip().lower()
+    if not v:
+        return None
+    if v == SALAS_PRUEBA:
+        return nueva_sala_jitsi_prueba
+    if v == SALAS_JITSI:
+        return nueva_sala_jitsi
+    raise ValueError(f"ANTROPIA_SALAS no válido: {valor!r} (use «{SALAS_PRUEBA}», «{SALAS_JITSI}» o déjelo vacío)")
+
+
+def enlace_valido(enlace: str | None) -> bool:
+    """Solo enlaces https con dominio. No comprueba que la sala exista."""
+    return bool(enlace) and re.fullmatch(r"https://[A-Za-z0-9.-]+\.[A-Za-z]{2,}(/\S*)?", enlace.strip()) is not None
 
 
 # ---------------------------------------------------------------------------
@@ -193,14 +239,55 @@ def _como_propuesta(f: FilaMatch, ahora: datetime) -> PropuestaMatch:
     return PropuestaMatch(
         id=f.id, solicitud_origen="sol-" + f.a, solicitud_candidata="sol-" + f.b,
         participante_a=f.a, participante_b=f.b, a_ensena=f.a_ensena, b_ensena=f.b_ensena,
-        motivo="", decision=DecisionHumana.RECHAZADA if inactiva else DecisionHumana.PENDIENTE,
+        motivo="", cerrada_automaticamente=bool(inactiva),
     )
+
+
+# ---------------------------------------------------------------------------
+# A1 automático
+# ---------------------------------------------------------------------------
+def validar_a1_automatico(p: Persona, resolver: ResolverZona) -> list[str]:
+    """Columnas de Participantes que faltan o no se pueden usar. No inventa ni corrige nada.
+
+    Es una comprobación AUTOMÁTICA: no decide la aptitud ni revisa el respaldo.
+    """
+    part, sol, _ = a_modelo(p)
+    problemas = []
+    if not sol.tema_ofrece:
+        problemas.append("Ofrece")
+    if not sol.tema_busca:
+        problemas.append("Quiere aprender")
+    if not (p.idioma or "").strip():
+        problemas.append("Idioma")
+    if not (p.modalidad or "").strip():
+        problemas.append("Modalidad")
+    if not sol.disponibilidad:
+        problemas.append("Disponibilidad + zona horaria")
+    if not sol.zona_horaria:
+        problemas.append("Zona horaria")
+    else:
+        try:
+            resolver(sol.zona_horaria)
+        except ZonaNoDisponible:
+            problemas.append("Zona horaria (no existe en la base IANA)")
+    if sol.minutos_por_sesion is None:
+        problemas.append("Minutos disponibles")
+    if not correo_valido(p.correo):
+        problemas.append("Correo electrónico")
+    return problemas
 
 
 # ---------------------------------------------------------------------------
 # Redacción
 # ---------------------------------------------------------------------------
-def _lista(temas: list[str]) -> str:
+def _lista(temas: list[str], pidio: str | None = None) -> str:
+    """«Excel avanzado → Excel básico» se muestra como «Excel avanzado (Bruno pidió: «Excel básico»)»."""
+    def uno(t: str) -> str:
+        if pidio and SEPARADOR_ETIQUETA in t:
+            ofrece, busca = t.split(SEPARADOR_ETIQUETA, 1)
+            return f"{ofrece} ({pidio}: «{busca}»)"
+        return t.replace(SEPARADOR_ETIQUETA, " / ")
+    temas = [uno(t) for t in temas]
     return temas[0] if len(temas) == 1 else ", ".join(temas[:-1]) + " y " + temas[-1]
 
 
@@ -227,12 +314,12 @@ def redactar_propuesta(f: FilaMatch, yo: Persona, zona: str, codigo: str,
     cuerpo = (
         f"Hola, {yo.alias}:\n\n{intro}"
         f"• Persona: {otra}\n"
-        f"• Tú compartes: {_lista(ensenas)}\n"
-        f"• {otra} comparte: {_lista(aprendes)}\n"
+        f"• Tú compartes: {_lista(ensenas, otra + ' pidió')}\n"
+        f"• {otra} comparte: {_lista(aprendes, 'tú pediste')}\n"
         f"• Fecha: {hora_local(f.inicio_utc, f.duracion, zona, resolver)}\n"
         f"• Tiempo: {mis_min} min enseñas tú · {sus_min} min enseña {otra} · "
         f"duración total: {mis_min + sus_min} min\n"
-        "• Modalidad: videollamada (Jitsi Meet)\n\n"
+        "• Modalidad: videollamada\n\n"
         "Para responder:\n"
         f"  1. Abre el formulario: {url_formulario}\n"
         f"  2. Escribe tu código personal: {codigo}\n"
@@ -255,11 +342,13 @@ def redactar_confirmacion(f: FilaMatch, yo: Persona, zona: str, resolver: Resolv
         f"• Fecha: {hora_local(f.inicio_utc, f.duracion, zona, resolver)}\n"
         f"• Tiempo: {mis_min} min enseñas tú · {sus_min} min enseña {otra} · "
         f"duración total: {mis_min + sus_min} min\n"
-        f"• Enlace de la videollamada: {f.enlace}\n\n"
+        f"• Enlace de la videollamada: {f.enlace}\n"
+        + ("  (Enlace de PRUEBA del piloto: sala temporal de Jitsi Meet.)\n" if es_enlace_de_prueba(f.enlace) else "")
+        + "\n"
         "Adjuntamos una invitación (.ics) para añadirlo a tu calendario.\n"
-        "Nota: Jitsi puede pedir que la primera persona en entrar inicie sesión "
-        "(Google, GitHub o Facebook) para abrir la sala.\n\n"
-        "— Comunidad Antropia"
+        + ("Nota: Jitsi puede pedir que la primera persona en entrar inicie sesión "
+           "(Google, GitHub o Facebook) para abrir la sala.\n" if "meet.jit.si" in (f.enlace or "") else "")
+        + "\n— Comunidad Antropia"
     )
     return "Antropia: tu encuentro está confirmado", cuerpo
 
@@ -283,7 +372,8 @@ def ics(f: FilaMatch, ahora: datetime) -> bytes:
         f"DTSTAMP:{ahora.astimezone(UTC):{fmt}}",
         f"DTSTART:{ini:{fmt}}",
         f"DTEND:{ini + f.duracion:{fmt}}",
-        "SUMMARY:Encuentro Antropia (intercambio de conocimiento)",
+        "SUMMARY:" + ("[PRUEBA] " if es_enlace_de_prueba(f.enlace) else "")
+        + "Encuentro Antropia (intercambio de conocimiento)",
         f"LOCATION:{f.enlace}",
         f"DESCRIPTION:Videollamada: {f.enlace}",
         "END:VEVENT", "END:VCALENDAR", "",
@@ -300,7 +390,12 @@ class Configuracion:
     clave_codigos: str
     resolver: ResolverZona = resolver_zona_real
     generar_codigo: Callable[[], str] = generar_codigo
-    nueva_sala: Callable[[], str] = nueva_sala_jitsi
+    # Proveedor de salas. None (por defecto) = el sistema NO crea enlaces: la
+    # confirmación espera a que una persona escriba un enlace real en «Enlace Jitsi».
+    # nueva_sala_jitsi_prueba = salas de Jitsi marcadas «PRUEBA» (piloto);
+    # nueva_sala_jitsi = salas reales. En ambos casos, una sala aleatoria distinta
+    # por pareja, creada solo cuando las dos personas aceptaron la misma versión.
+    nueva_sala: Callable[[], str] | None = None
 
 
 @dataclass
@@ -314,6 +409,9 @@ class Resumen:
     cerrados: int = 0
     correos_enviados: int = 0
     errores_envio: int = 0
+    a1_con_problemas: int = 0          # personas elegibles que A1 automático dejó fuera
+    pares_por_aclarar: int = 0         # temas relacionados pero inciertos: no se propone match
+    confirmados_sin_enlace: int = 0    # ambas aceptaron; falta un enlace real para confirmar
     avisos: list[str] = field(default_factory=list)   # sin datos personales
 
 
@@ -395,9 +493,13 @@ class Ciclo:
         if f.respuesta_a == ACEPTO and f.respuesta_b == ACEPTO:
             motivo = self._motivo_no_confirmable(f, pa, pb)
             if motivo is None:
-                f.enlace = f.enlace or self.cfg.nueva_sala()
+                if not enlace_valido(f.enlace) and self.cfg.nueva_sala is not None:
+                    f.enlace = self._sala_unica(f)
                 f.estado = CONFIRMADO
-                f.notas = f"confirmado automáticamente el {self.ahora:%Y-%m-%d %H:%M} UTC"
+                f.notas = (f"confirmado automáticamente el {self.ahora:%Y-%m-%d %H:%M} UTC "
+                           f"(ambas aceptaron la versión {f.version})")
+                if not enlace_valido(f.enlace):
+                    f.notas += "; falta el enlace de la videollamada: escribirlo en «Enlace Jitsi»"
                 self.almacen.guardar_match(f)
                 self.r.confirmados += 1
                 self._enviar_confirmaciones(f)
@@ -405,6 +507,16 @@ class Ciclo:
             return self._reprogramar(f, pa, pb, motivo)
         if vence:
             return self._reprogramar(f, pa, pb, "llegó la hora propuesta sin las dos aceptaciones")
+
+    def _sala_unica(self, f: FilaMatch) -> str | None:
+        """Una sala distinta por pareja: nunca reutiliza el enlace de otro match."""
+        usados = {g.enlace for g in self.filas if g is not f and g.enlace}
+        for _ in range(5):
+            enlace = self.cfg.nueva_sala()
+            if enlace_valido(enlace) and enlace not in usados:
+                return enlace
+        self.r.avisos.append(f"{f.id}: no se pudo crear una sala única")
+        return None
 
     def _motivo_no_confirmable(self, f: FilaMatch, pa: Persona, pb: Persona) -> str | None:
         if f.inicio_utc - MARGEN_CONFIRMAR <= self.ahora:
@@ -479,6 +591,10 @@ class Ciclo:
                 self.almacen.guardar_match(f)
 
     def _enviar_confirmaciones(self, f: FilaMatch) -> None:
+        if not enlace_valido(f.enlace):
+            self.r.confirmados_sin_enlace += 1
+            self.r.avisos.append(f"{f.id}: confirmado sin enlace de videollamada; no se envía la confirmación")
+            return
         adjunto = ("encuentro-antropia.ics", "text/calendar", ics(f, self.ahora))
         for pid in (f.a, f.b):
             lado = f.lado(pid)
@@ -493,12 +609,18 @@ class Ciclo:
     def _nuevos_matches(self) -> None:
         participantes, solicitudes = {}, []
         for p in self.personas.values():
-            if not correo_valido(p.correo):
-                continue                       # sin correo no se le puede avisar
             part, sol, avisos = a_modelo(p)
+            if a2_match.motivos_participante_no_elegible(part):
+                continue                       # sin autorización, aptitud o respaldo: no se usa
+            problemas = validar_a1_automatico(p, self.cfg.resolver)
+            if problemas:
+                self.r.a1_con_problemas += 1
+                self.r.avisos.append(f"participante {p.id[-6:]}: A1 automático: faltan o no son "
+                                     f"válidos: " + ", ".join(problemas))
+                continue
             participantes[p.id] = part
             solicitudes.append(sol)
-            if avisos and not a2_match.motivos_participante_no_elegible(part):
+            if avisos:
                 self.r.avisos.append(f"participante {p.id[-6:]}: " + "; ".join(avisos))
         clave = f"auto-{self.ahora:%Y%m%dT%H%M}"
         contador = iter(range(1, 10_000))
@@ -512,6 +634,14 @@ class Ciclo:
             self.r.avisos.append(f"A2 no se ejecutó: {e}")
             return
         self.r.elegibles = len(solicitudes) - len(res.excluidas)
+        por_aclarar = set()
+        for sid, resumen in res.por_solicitud.items():
+            for otra, pendientes in resumen.bloqueadas.items():
+                if any(x.startswith(REQUIERE_ACLARACION) for x in pendientes):
+                    por_aclarar.add(tuple(sorted((sid[4:], otra[4:]))))
+        for a, b in sorted(por_aclarar):
+            self.r.avisos.append(f"par {a[-6:]}/{b[-6:]}: {REQUIERE_ACLARACION} de temas; no se propone match")
+        self.r.pares_por_aclarar = len(por_aclarar)
         for m in res.propuestas:
             e = m.evidencia
             pa, pb = self.personas[m.participante_a], self.personas[m.participante_b]
@@ -520,7 +650,7 @@ class Ciclo:
                 a_ensena=list(m.a_ensena), b_ensena=list(m.b_ensena),
                 inicio_utc=datetime.fromisoformat(e["horario_comun_utc"]),
                 minutos_a=e["minutos_por_persona"][pa.id], minutos_b=e["minutos_por_persona"][pb.id],
-                clave=clave, notas="creado automáticamente por A2",
+                clave=clave, notas="creado automáticamente por A2; temas: " + ", ".join(e["tipos_coincidencia"]),
             )
             f.id = self.almacen.crear_match(f)
             self.filas.append(f)

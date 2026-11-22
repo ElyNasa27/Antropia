@@ -16,19 +16,18 @@ COLUMNAS_PARTICIPANTES = {
     "respaldo_declarado": "Respaldo declarado",
     "revision_respaldo": "Revisión humana del respaldo",
     "idioma": "Idioma",
-    "tipo_perfil": "Tipo de perfil",
+    "tipo_perfil": "Tipo de perfil",              # selección múltiple (ver SELECCION_MULTIPLE)
     # El resto de columnas se usan en el formulario (ver COLUMNAS_FORMULARIO).
-    # «Minutos disponibles» existe pero NO se usa: su significado no es el aporte.
 }
 
-# Columnas reales de Participantes, releídas el 2026-11-21 después de añadir
-# (con aprobación) Objetivo concreto, Acepta videollamada, Zona horaria,
-# Minutos que enseña por encuentro y Correo electrónico, y de eliminar
-# «Autorización para mensajes por Telegram» (estaba vacía).
+# Columnas reales de Participantes, releídas en solo lectura el 2026-11-21.
+# «Minutos que enseña por encuentro» ya NO existe: el formulario pregunta los
+# minutos de enseñanza en «Minutos disponibles». «Tipo de perfil» es de
+# selección múltiple.
 COLUMNAS_REALES_PARTICIPANTES = frozenset({
     "Alias", "Tipo de perfil", "Ofrece", "Quiere aprender", "Objetivo concreto", "Idioma",
     "Modalidad", "Acepta videollamada", "Disponibilidad + zona horaria", "Zona horaria",
-    "Minutos que enseña por encuentro", "Minutos disponibles", "Respaldo declarado",
+    "Minutos disponibles", "Respaldo declarado",
     "Autorización para participar", "Correo electrónico",
     "Aptitud", "Revisión humana del respaldo", "Faltantes", "ID",
 })
@@ -46,7 +45,7 @@ COLUMNAS_FORMULARIO = {
     "acepta_videollamada": "Acepta videollamada",
     "dias_y_franjas": "Disponibilidad + zona horaria",   # se usa para días y franjas
     "zona_horaria": "Zona horaria",
-    "minutos_que_ensena": "Minutos que enseña por encuentro",
+    "minutos_que_ensena": "Minutos disponibles",         # minutos que la persona enseña
     "respaldo_declarado": "Respaldo declarado",
     "autoriza_participar": "Autorización para participar",
     "correo": "Correo electrónico",                       # privado
@@ -54,8 +53,11 @@ COLUMNAS_FORMULARIO = {
 
 # Campos internos: nunca forman parte del formulario ni los escribe quien responde.
 CAMPOS_INTERNOS_PARTICIPANTES = frozenset({
-    "Aptitud", "Revisión humana del respaldo", "Faltantes", "ID", "Minutos disponibles",
+    "Aptitud", "Revisión humana del respaldo", "Faltantes", "ID",
 })
+
+# Columnas de selección múltiple: su valor es una lista de opciones.
+SELECCION_MULTIPLE = frozenset({"Participantes.Tipo de perfil"})
 
 COLUMNAS_SOLICITUDES = {
     "id": "ID",

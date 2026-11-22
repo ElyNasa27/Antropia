@@ -110,6 +110,54 @@ class TestCicloAutomatico(unittest.TestCase):
         self.assertIn(URL_FORM, a.cuerpo)
         self.assertEqual(a.para, "alba@example.org")
 
+    def test_match_con_temas_escritos_distinto(self):
+        alm, envio = self.preparar([
+            persona("alba", "Alba", "crear tablas en Excel para controlar gastos", "English",
+                    "lunes 18:00–20:00", "Europe/Madrid"),
+            persona("bruno", "Bruno", "clases de inglés", "aprender a organizar gastos usando Excel",
+                    "lunes 11:00-13:00; America/Mexico_City", None),
+        ])
+        [f] = alm.filas.values()
+        self.assertEqual(f.a_ensena, ["crear tablas en Excel para controlar gastos → "
+                                      "aprender a organizar gastos usando Excel"])
+        self.assertEqual(f.b_ensena, ["clases de inglés → English"])
+        self.assertIn("temas: sinónimo, tema definido", f.notas)
+        a = next(c for c in envio.enviados if c.destinatario_id == "alba")
+        self.assertIn("Tú compartes: crear tablas en Excel para controlar gastos "
+                      "(Bruno pidió: «aprender a organizar gastos usando Excel»)", a.cuerpo)
+        self.assertIn("Bruno comparte: clases de inglés (tú pediste: «English»)", a.cuerpo)
+
+    def test_tema_incierto_no_crea_match_ni_envia_correos(self):
+        alm, envio = self.preparar([
+            persona("alba", "Alba", "Excel", "English", "lunes 18:00–20:00", "Europe/Madrid"),
+            persona("bruno", "Bruno", "clases de inglés", "Excel avanzado",
+                    "lunes 11:00-13:00; America/Mexico_City", None),
+        ])
+        self.assertEqual(alm.filas, {})
+        self.assertEqual(envio.enviados, [])
+        r = Ciclo(alm, envio, self.cfg(), LUNES).ejecutar()
+        self.assertEqual(r.pares_por_aclarar, 1)
+        [aviso] = [x for x in r.avisos if "requiere aclaración" in x]
+        self.assertNotIn("Excel", aviso)            # el registro no muestra los temas
+        self.assertEqual(aviso, "par alba/bruno: requiere aclaración de temas; no se propone match")
+
+    def test_coincidencia_en_una_sola_direccion_no_crea_match(self):
+        alm, envio = self.preparar([
+            persona("alba", "Alba", "crear tablas en Excel para controlar gastos", "guitarra",
+                    "lunes 18:00–20:00", "Europe/Madrid"),
+            persona("bruno", "Bruno", "inglés", "organizar gastos usando Excel",
+                    "lunes 11:00-13:00; America/Mexico_City", None),
+        ])
+        self.assertEqual((alm.filas, envio.enviados), ({}, []))
+
+    def test_sin_match_si_el_nivel_no_alcanza(self):
+        alm, _ = self.preparar([
+            persona("alba", "Alba", "Excel básico", "inglés", "lunes 18:00–20:00", "Europe/Madrid"),
+            persona("bruno", "Bruno", "inglés", "Excel avanzado",
+                    "lunes 11:00-13:00; America/Mexico_City", None),
+        ])
+        self.assertEqual(alm.filas, {})
+
     def test_el_codigo_no_se_guarda_solo_su_huella(self):
         alm, envio = self.preparar()
         [f] = alm.filas.values()
@@ -212,6 +260,56 @@ class TestCicloAutomatico(unittest.TestCase):
         self.ciclo(alm, envio, INICIO + timedelta(minutes=5))
         self.assertEqual(alm.respuestas[r].procesada, CADUCADA)
 
+    def test_sin_proveedor_de_salas_no_se_inventa_enlace(self):
+        alm, envio = AlmacenMemoria([alba(), bruno()]), EnvioSimulado()
+        cfg = Configuracion(URL_FORM, CLAVE, generar_codigo=lambda: next(self.codigos))
+        self.assertIsNone(cfg.nueva_sala)              # por defecto no se crean salas
+        Ciclo(alm, envio, cfg, LUNES).ejecutar()
+        alm.responder(self.codigo_de(envio, "alba"), ACEPTO)
+        alm.responder(self.codigo_de(envio, "bruno"), ACEPTO)
+        r = Ciclo(alm, envio, cfg, LUNES + timedelta(hours=1)).ejecutar()
+        [f] = alm.filas.values()
+        self.assertEqual(f.estado, CONFIRMADO)
+        self.assertIsNone(f.enlace)
+        self.assertIn("falta el enlace", f.notas)
+        self.assertFalse(f.confirmacion_a or f.confirmacion_b)
+        self.assertEqual([c for c in envio.enviados if "confirmado" in c.asunto], [])
+        self.assertEqual(r.confirmados_sin_enlace, 1)
+        # Un enlace no válido escrito a mano tampoco se envía.
+        f.enlace = "meet.jit.si/sala"
+        alm.guardar_match(f)
+        Ciclo(alm, envio, cfg, LUNES + timedelta(hours=2)).ejecutar()
+        self.assertEqual([c for c in envio.enviados if "confirmado" in c.asunto], [])
+        # Cuando una persona escribe un enlace real, se envía la confirmación a cada una.
+        f.enlace = "https://videollamada.example/sala-de-prueba"
+        alm.guardar_match(f)
+        Ciclo(alm, envio, cfg, LUNES + timedelta(hours=3)).ejecutar()
+        conf = [c for c in envio.enviados if "confirmado" in c.asunto]
+        self.assertEqual(sorted(c.destinatario_id for c in conf), ["alba", "bruno"])
+        self.assertTrue(all(f.enlace in c.cuerpo and "Jitsi" not in c.cuerpo for c in conf))
+
+    def test_solo_se_confirma_si_ambas_aceptan_la_misma_version(self):
+        alm, envio = self.preparar()
+        viejo_alba = self.codigo_de(envio, "alba")
+        alm.responder(viejo_alba, ACEPTO)                       # Alba acepta la versión 1
+        self.ciclo(alm, envio, INICIO - timedelta(minutes=30))  # Bruno no responde: versión 2
+        [f] = alm.filas.values()
+        self.assertEqual((f.version, f.respuesta_a, f.respuesta_b), (2, PENDIENTE, PENDIENTE))
+        # La aceptación de la versión 1 no vale para la 2: con el código viejo no se aplica.
+        r = alm.responder(viejo_alba, ACEPTO)
+        alm.responder(self.codigo_de(envio, "bruno"), ACEPTO)  # Bruno acepta la versión 2
+        self.ciclo(alm, envio, INICIO)
+        [f] = alm.filas.values()
+        self.assertEqual(alm.respuestas[r].procesada, CODIGO_NO_VALIDO)
+        self.assertEqual((f.estado, f.respuesta_a, f.respuesta_b), (ESPERANDO, PENDIENTE, ACEPTO))
+        # El código de una persona no sirve para responder por la otra.
+        self.assertNotEqual(self.codigo_de(envio, "alba"), self.codigo_de(envio, "bruno"))
+        alm.responder(self.codigo_de(envio, "alba"), ACEPTO)
+        self.ciclo(alm, envio, INICIO + timedelta(hours=1))
+        [f] = alm.filas.values()
+        self.assertEqual(f.estado, CONFIRMADO)
+        self.assertIn("ambas aceptaron la versión 2", f.notas)
+
     def test_choque_con_otro_encuentro_confirmado_reprograma(self):
         carla = persona("carla", "Carla", "inglés conversacional", "fotografía con móvil",
                         "lunes 11:00-13:00", "America/Mexico_City")
@@ -269,6 +367,39 @@ class TestCicloAutomatico(unittest.TestCase):
                 self.assertEqual(alm.filas, {})
                 self.assertEqual(envio.enviados, [])
 
+    def test_a1_automatico_excluye_datos_no_validos_sin_parar_a_las_demas(self):
+        carla = persona("carla", "Carla", "inglés conversacional", "fotografía con móvil",
+                        "lunes 11:00-13:00", "Marte/Olympus")
+        alm, envio = AlmacenMemoria([alba(), bruno(), carla]), EnvioSimulado()
+        r = Ciclo(alm, envio, self.cfg(), LUNES).ejecutar()
+        [f] = alm.filas.values()                       # Alba y Bruno siguen emparejándose
+        self.assertEqual((f.a, f.b), ("alba", "bruno"))
+        self.assertEqual(r.a1_con_problemas, 1)
+        self.assertIn("participante carla: A1 automático: faltan o no son válidos: "
+                      "Zona horaria (no existe en la base IANA)", r.avisos)
+
+    def test_a1_automatico_no_marca_decisiones_humanas(self):
+        from encuentros.automatico import validar_a1_automatico
+        from encuentros.zonas import resolver_zona_real
+        p = bruno(aptitud="Pendiente")
+        self.assertEqual(validar_a1_automatico(p, resolver_zona_real), [])
+        self.assertEqual(p.aptitud, "Pendiente")       # A1 no toca «Aptitud»
+        alm, _ = self.preparar([alba(), p])
+        self.assertEqual(alm.filas, {})                # sigue haciendo falta «Apto» (humano)
+
+    def test_cierre_automatico_no_es_decision_humana(self):
+        from encuentros.automatico import _como_propuesta
+        from encuentros.modelos import DecisionHumana
+        alm, envio = self.preparar()
+        alm.responder(self.codigo_de(envio, "bruno"), NO_INTERESA)
+        self.ciclo(alm, envio, LUNES + timedelta(hours=1))
+        [f] = alm.filas.values()
+        m = _como_propuesta(f, LUNES)
+        self.assertTrue(m.cerrada_automaticamente)
+        self.assertFalse(m.activa)
+        self.assertEqual(m.decision, DecisionHumana.PENDIENTE)   # nadie decidió a mano
+        self.assertIsNone(m.decidido_por)
+
     def test_respaldo_aprobado_en_notion_permite_el_match(self):
         alm, _ = self.preparar([alba(), bruno(respaldo="Profesor", revision_respaldo="Aprobada")])
         self.assertEqual(len(alm.filas), 1)
@@ -282,6 +413,104 @@ class TestCicloAutomatico(unittest.TestCase):
         [f] = alm.filas.values()
         self.assertNotEqual(f.estado, CONFIRMADO)
         self.assertIsNone(f.enlace)
+
+
+@unittest.skipUnless(ZONAS_REALES, "requiere tzdata (usar .venv)")
+class TestSalasJitsi(unittest.TestCase):
+    """Salas de Jitsi: de prueba primero, una por pareja, solo tras las dos aceptaciones.
+    Nunca se conecta a Jitsi: el enlace es solo texto."""
+
+    def setUp(self):
+        self.codigos = (f"C{n:03d}-AAAA".replace("0", "Q").replace("1", "R") for n in itertools.count(100))
+
+    def cfg(self, nueva_sala=None):
+        from encuentros.automatico import nueva_sala_jitsi_prueba
+        return Configuracion(URL_FORM, CLAVE, generar_codigo=lambda: next(self.codigos),
+                             nueva_sala=nueva_sala or nueva_sala_jitsi_prueba)
+
+    def codigo_de(self, envio, pid):
+        cuerpos = [c.cuerpo for c in envio.enviados if c.destinatario_id == pid]
+        return normalizar_codigo(cuerpos[-1].split("código personal:")[1])
+
+    def dos_parejas(self):
+        # Segunda pareja con otros temas: solo es compatible entre sí.
+        carla = persona("carla", "Carla", "guitarra", "cocina", "lunes 11:00-13:00", "America/Mexico_City")
+        dani = persona("dani", "Dani", "clases de cocina", "guitarras", "lunes 18:00–20:00", "Europe/Madrid")
+        return [alba(), bruno(), carla, dani]
+
+    def test_nombre_aleatorio_dificil_de_adivinar(self):
+        import re
+        from encuentros.automatico import es_enlace_de_prueba, nueva_sala_jitsi, nueva_sala_jitsi_prueba
+        p, r = nueva_sala_jitsi_prueba(), nueva_sala_jitsi()
+        self.assertRegex(p, r"^https://meet\.jit\.si/AntropiaPRUEBA[0-9a-f]{32}$")
+        self.assertRegex(r, r"^https://meet\.jit\.si/Antropia[0-9a-f]{32}$")
+        self.assertTrue(es_enlace_de_prueba(p))
+        self.assertFalse(es_enlace_de_prueba(r))
+        muestras = {nueva_sala_jitsi() for _ in range(1000)}
+        self.assertEqual(len(muestras), 1000)
+        self.assertTrue(all(re.search(r"[0-9a-f]{32}$", m) for m in muestras))
+
+    def test_variable_antropia_salas(self):
+        from encuentros.automatico import nueva_sala_jitsi, nueva_sala_jitsi_prueba, proveedor_de_salas
+        self.assertIsNone(proveedor_de_salas(None))
+        self.assertIsNone(proveedor_de_salas(""))
+        self.assertIs(proveedor_de_salas("jitsi-prueba"), nueva_sala_jitsi_prueba)
+        self.assertIs(proveedor_de_salas(" JITSI "), nueva_sala_jitsi)
+        with self.assertRaises(ValueError):
+            proveedor_de_salas("zoom")
+
+    def test_enlace_solo_despues_de_que_ambas_aceptan(self):
+        alm, envio = AlmacenMemoria([alba(), bruno()]), EnvioSimulado()
+        cfg = self.cfg()
+        Ciclo(alm, envio, cfg, LUNES).ejecutar()
+        self.assertFalse(any("meet.jit.si" in c.cuerpo for c in envio.enviados))   # propuestas sin enlace
+        alm.responder(self.codigo_de(envio, "alba"), ACEPTO)
+        Ciclo(alm, envio, cfg, LUNES + timedelta(hours=1)).ejecutar()
+        [f] = alm.filas.values()
+        self.assertIsNone(f.enlace)                                 # con una sola aceptación, nada
+        self.assertFalse(any("meet.jit.si" in c.cuerpo for c in envio.enviados))
+        alm.responder(self.codigo_de(envio, "bruno"), ACEPTO)
+        Ciclo(alm, envio, cfg, LUNES + timedelta(hours=2)).ejecutar()
+        [f] = alm.filas.values()
+        self.assertEqual(f.estado, CONFIRMADO)
+        self.assertTrue(f.enlace.startswith("https://meet.jit.si/AntropiaPRUEBA"))
+        conf = [c for c in envio.enviados if "confirmado" in c.asunto]
+        self.assertEqual(sorted(c.destinatario_id for c in conf), ["alba", "bruno"])
+        for c in conf:
+            self.assertIn(f.enlace, c.cuerpo)
+            self.assertIn("Enlace de PRUEBA del piloto", c.cuerpo)
+            self.assertIn(b"SUMMARY:[PRUEBA] Encuentro Antropia", c.adjuntos[0][2])
+
+    def test_cada_pareja_tiene_su_propia_sala(self):
+        alm, envio = AlmacenMemoria(self.dos_parejas()), EnvioSimulado()
+        cfg = self.cfg()
+        Ciclo(alm, envio, cfg, LUNES).ejecutar()
+        self.assertEqual(len(alm.filas), 2)
+        for pid in ("alba", "bruno", "carla", "dani"):
+            alm.responder(self.codigo_de(envio, pid), ACEPTO)
+        Ciclo(alm, envio, cfg, LUNES + timedelta(hours=1)).ejecutar()
+        filas = list(alm.filas.values())
+        self.assertTrue(all(f.estado == CONFIRMADO for f in filas))
+        self.assertEqual(len({f.enlace for f in filas}), 2)
+        # Cada persona recibe solo el enlace de su pareja.
+        for f in filas:
+            otros = {g.enlace for g in filas if g is not f}
+            for c in envio.enviados:
+                if c.destinatario_id in (f.a, f.b) and "confirmado" in c.asunto:
+                    self.assertIn(f.enlace, c.cuerpo)
+                    self.assertFalse(any(o in c.cuerpo for o in otros))
+
+    def test_si_el_generador_repite_un_enlace_se_pide_otro(self):
+        repetidos = iter(["https://meet.jit.si/AntropiaPRUEBAigual", "https://meet.jit.si/AntropiaPRUEBAigual",
+                          "https://meet.jit.si/AntropiaPRUEBAotra"])
+        alm, envio = AlmacenMemoria(self.dos_parejas()), EnvioSimulado()
+        cfg = self.cfg(nueva_sala=lambda: next(repetidos))
+        Ciclo(alm, envio, cfg, LUNES).ejecutar()
+        for pid in ("alba", "bruno", "carla", "dani"):
+            alm.responder(self.codigo_de(envio, pid), ACEPTO)
+        Ciclo(alm, envio, cfg, LUNES + timedelta(hours=1)).ejecutar()
+        self.assertEqual({f.enlace for f in alm.filas.values()},
+                         {"https://meet.jit.si/AntropiaPRUEBAigual", "https://meet.jit.si/AntropiaPRUEBAotra"})
 
 
 class TestCodigos(unittest.TestCase):
