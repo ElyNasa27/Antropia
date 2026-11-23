@@ -439,6 +439,18 @@ class TestFilasPuestasAMano(unittest.TestCase):
         self.assertEqual(envio.enviados, [])
         self.assertIn("posible misma persona (mismo alias en las dos filas)", res.no_enviados)
 
+    def test_ficha_que_no_se_puede_leer_se_salta_sin_error(self):
+        # La fila apunta a una persona cuya ficha no se leyó (p. ej. la integración no la ve).
+        self.preparar(b="cccc-3333")
+        res, envio = self.enviar()                       # no lanza ninguna excepción
+        clave = clave_manual("aaaa1111", "cccc3333")
+        # (el par calculado Alba↔Bruno sí recibe sus correos: aquí no se usa --solo-filas-de-la-base)
+        self.assertEqual([c for c in envio.enviados if c.match_id == clave], [])
+        self.assertEqual(res.no_enviados,
+                         {"no se pudo leer la ficha de alguna de las dos personas en Participantes": 2})
+        base = base_correo(clave_manual("aaaa1111", "cccc3333"), "A")
+        self.assertIsNone(RegistroNotion(self.cliente, leer_todo(self.notion)[3]).leer(f"{base}/reserva-1"))
+
 
 class TestReenvioExacto(unittest.TestCase):
     def setUp(self):

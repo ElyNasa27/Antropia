@@ -1,0 +1,300 @@
+<title>Antropia · Activar el envío</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Diseño: guía en columna; cada paso = texto a la izquierda + esquema de pantalla a la derecha (apilado en móvil). */
+:root {
+  --bg: #f6f7f4; --panel: #ffffff; --fg: #1d2420; --muted: #5d6a63; --line: #d7ddd8;
+  --accent: #2f6f5e; --accent-soft: #e2efe9; --mark: #f2c14e; --mark-soft: #fff4d6;
+  --screen: #eef1ee; --screen-bar: #dfe4e0; --danger: #b4492f;
+  --f-display: "Space Grotesk", "Segoe UI", system-ui, sans-serif;
+  --f-body: "Inter", "Segoe UI", system-ui, sans-serif;
+  --f-mono: "JetBrains Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #121614; --panel: #1a201d; --fg: #e6ece8; --muted: #9aa8a0; --line: #2e3833;
+  --accent: #6fc2a8; --accent-soft: #1f3530; --mark: #e0b84e; --mark-soft: #3a3220;
+  --screen: #202724; --screen-bar: #2a332f; --danger: #e08a72; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #121614; --panel: #1a201d; --fg: #e6ece8; --muted: #9aa8a0; --line: #2e3833;
+  --accent: #6fc2a8; --accent-soft: #1f3530; --mark: #e0b84e; --mark-soft: #3a3220;
+  --screen: #202724; --screen-bar: #2a332f; --danger: #e08a72; color-scheme: dark }
+
+body { background: var(--bg); color: var(--fg); font-family: var(--f-body); font-size: 15px; line-height: 1.55;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+main { max-width: 1040px; margin: 0 auto; padding-block: 40px 64px; display: grid; gap: 28px; }
+h1, h2 { font-family: var(--f-display); text-wrap: balance; margin: 0; letter-spacing: -0.01em; }
+h1 { font-size: clamp(28px, 4vw, 40px); }
+h2 { font-size: 21px; }
+p { margin: 0; max-width: 62ch; }
+.intro { display: grid; gap: 12px; }
+.intro p { color: var(--muted); }
+.ruta { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+.ruta span { font-size: 13px; padding: 4px 10px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.aviso { border-left: 4px solid var(--mark); background: var(--mark-soft); padding: 12px 16px; border-radius: 6px; max-width: 70ch; }
+
+.paso { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); gap: 24px; align-items: start;
+  padding: 24px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
+@media (max-width: 760px) { .paso { grid-template-columns: 1fr; padding: 18px; } }
+.texto { display: grid; gap: 12px; min-width: 0; }
+.cabeza { display: flex; gap: 12px; align-items: baseline; }
+.num { font-family: var(--f-display); font-weight: 700; color: var(--accent); font-size: 15px; white-space: nowrap; }
+.donde { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); font-weight: 600; }
+ol.acciones { margin: 0; padding-left: 20px; display: grid; gap: 6px; }
+ol.acciones li::marker { color: var(--accent); font-weight: 600; }
+b.boton { font-weight: 600; background: var(--accent-soft); color: var(--accent); padding: 1px 6px; border-radius: 4px; white-space: nowrap; }
+
+.copiar { display: grid; gap: 8px; }
+.fila-copia { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center;
+  background: var(--screen); border: 1px solid var(--line); border-radius: 6px; padding: 6px 6px 6px 10px; }
+.fila-copia code { font-family: var(--f-mono); font-size: 13px; overflow-wrap: anywhere; }
+.fila-copia small { display: block; color: var(--muted); font-size: 11px; font-family: var(--f-body); text-transform: uppercase; letter-spacing: 0.05em; }
+button.cp { font: 600 12px var(--f-body); border: 1px solid var(--line); background: var(--panel); color: var(--fg); border-radius: 5px; padding: 6px 10px; cursor: pointer; }
+button.cp:hover { border-color: var(--accent); color: var(--accent); }
+button.cp:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* Esquemas de pantalla */
+.pantalla { border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--screen); min-width: 0; }
+.barra { background: var(--screen-bar); padding: 7px 10px; display: flex; gap: 6px; align-items: center; font-size: 11px; color: var(--muted); }
+.barra i { width: 8px; height: 8px; border-radius: 50%; background: var(--line); display: inline-block; }
+.barra em { font-style: normal; margin-left: 8px; font-family: var(--f-mono); overflow-wrap: anywhere; }
+.lienzo { padding: 14px; display: grid; gap: 10px; font-size: 13px; }
+.tabs { display: flex; flex-wrap: wrap; gap: 4px; border-bottom: 1px solid var(--line); padding-bottom: 6px; }
+.tabs span { padding: 4px 8px; border-radius: 5px; color: var(--muted); }
+.lado { display: grid; grid-template-columns: 130px minmax(0, 1fr); gap: 12px; }
+@media (max-width: 420px) { .lado { grid-template-columns: 1fr; } }
+.menu { display: grid; gap: 3px; align-content: start; font-size: 12px; color: var(--muted); }
+.menu span { padding: 3px 6px; border-radius: 4px; }
+.menu .sub { padding-left: 16px; }
+.caja { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 10px; display: grid; gap: 8px; }
+.campo { display: grid; gap: 3px; }
+.campo label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+.campo div { border: 1px solid var(--line); border-radius: 4px; padding: 5px 8px; font-family: var(--f-mono); font-size: 12px; background: var(--screen); overflow-wrap: anywhere; }
+.btn { justify-self: start; padding: 5px 10px; border-radius: 5px; background: var(--accent); color: var(--panel); font-weight: 600; font-size: 12px; }
+.btn.gris { background: var(--screen-bar); color: var(--fg); }
+.lista { display: grid; gap: 4px; }
+.lista div { display: flex; justify-content: space-between; gap: 8px; border: 1px solid var(--line); border-radius: 4px; padding: 5px 8px; font-family: var(--f-mono); font-size: 12px; background: var(--panel); }
+.lista div span:last-child { color: var(--muted); font-family: var(--f-body); }
+.aqui { outline: 2.5px solid var(--mark); outline-offset: 2px; background: var(--mark-soft) !important; color: var(--fg) !important; border-radius: 5px; position: relative; }
+.flecha { font-size: 11px; font-weight: 700; color: var(--fg); background: var(--mark); padding: 1px 6px; border-radius: 4px; justify-self: start; }
+.clave16 { font-family: var(--f-mono); letter-spacing: 0.12em; background: var(--mark-soft); border: 1px dashed var(--mark); border-radius: 5px; padding: 8px; text-align: center; }
+.salida { font-family: var(--f-mono); font-size: 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 5px; padding: 8px 10px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.nota { font-size: 13px; color: var(--muted); }
+.pie { color: var(--muted); font-size: 13px; }
+@media (prefers-reduced-motion: no-preference) { button.cp { transition: border-color .15s, color .15s; } }
+</style>
+
+<main>
+  <header class="intro">
+    <h1>Activar el envío de correos por cursos</h1>
+    <p>Seis pasos para que el workflow «Correos de coincidencias por cursos» envíe los correos desde la cuenta de la comunidad. Los dibujos son esquemas de cada pantalla, no capturas reales: el recuadro amarillo marca dónde hacer clic o qué escribir.</p>
+    <div class="ruta"><span>Google: contraseña de aplicación</span><span>GitHub: 3 secretos</span><span>GitHub: 1 variable</span><span>Notion: conexión</span><span>Ensayo</span><span>Activar y enviar</span></div>
+    <p class="aviso"><strong>Las contraseñas y el token no se escriben en ningún chat ni archivo.</strong> Solo se pegan en las casillas de GitHub. GitHub los guarda ocultos y ni siquiera vuelve a mostrarlos.</p>
+  </header>
+
+  <!-- 1 -->
+  <section class="paso">
+    <div class="texto">
+      <div class="cabeza"><span class="num">Paso 1</span><h2>Contraseña de aplicación de Gmail</h2></div>
+      <span class="donde">En la cuenta de Google de la comunidad</span>
+      <ol class="acciones">
+        <li>Entra con la cuenta de la comunidad y abre <b class="boton">Seguridad</b>.</li>
+        <li>Comprueba que <b class="boton">Verificación en dos pasos</b> está activada (si no, actívala primero).</li>
+        <li>Abre la página de contraseñas de aplicación (dirección de abajo).</li>
+        <li>Escribe el nombre <code>Antropia</code> y pulsa <b class="boton">Crear</b>.</li>
+        <li>Copia las 16 letras que aparecen. Las vas a pegar en el paso 2 y no se vuelven a mostrar.</li>
+      </ol>
+      <div class="copiar">
+        <div class="fila-copia"><code><small>Página</small>myaccount.google.com/apppasswords</code><button class="cp" data-copiar="https://myaccount.google.com/apppasswords">Copiar</button></div>
+      </div>
+    </div>
+    <div class="pantalla" aria-label="Esquema de la página de contraseñas de aplicación">
+      <div class="barra"><i></i><i></i><i></i><em>myaccount.google.com/apppasswords</em></div>
+      <div class="lienzo">
+        <strong>Contraseñas de aplicaciones</strong>
+        <div class="caja">
+          <div class="campo"><label>Nombre de la aplicación</label><div class="aqui">Antropia</div></div>
+          <span class="btn aqui">Crear</span>
+        </div>
+        <span class="flecha">↓ aparece esto: cópialo</span>
+        <div class="clave16">•••• •••• •••• ••••</div>
+        <span class="nota">16 letras en 4 grupos. Los espacios no importan.</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- 2 -->
+  <section class="paso">
+    <div class="texto">
+      <div class="cabeza"><span class="num">Paso 2</span><h2>Tres secretos en GitHub</h2></div>
+      <span class="donde">Repositorio ElyNasa27/Antropia</span>
+      <ol class="acciones">
+        <li>Abre el repositorio y pulsa la pestaña <b class="boton">Settings</b> (arriba a la derecha).</li>
+        <li>En el menú de la izquierda: <b class="boton">Secrets and variables</b> → <b class="boton">Actions</b>.</li>
+        <li>Pestaña <b class="boton">Secrets</b> → botón verde <b class="boton">New repository secret</b>.</li>
+        <li>En <em>Name</em> pega el nombre exacto; en <em>Secret</em>, el valor. Pulsa <b class="boton">Add secret</b>.</li>
+        <li>Repite para los tres. Si ya existe uno, puedes dejarlo (o pulsar <em>Update</em> para cambiar su valor).</li>
+      </ol>
+      <div class="copiar">
+        <div class="fila-copia"><code><small>Name · valor: el token de la integración de Notion</small>NOTION_TOKEN</code><button class="cp" data-copiar="NOTION_TOKEN">Copiar</button></div>
+        <div class="fila-copia"><code><small>Name · valor: la dirección de la comunidad</small>ANTROPIA_SMTP_USUARIO</code><button class="cp" data-copiar="ANTROPIA_SMTP_USUARIO">Copiar</button></div>
+        <div class="fila-copia"><code><small>Name · valor: las 16 letras del paso 1</small>ANTROPIA_SMTP_CLAVE</code><button class="cp" data-copiar="ANTROPIA_SMTP_CLAVE">Copiar</button></div>
+      </div>
+      <p class="nota">El token de Notion está en Notion → Configuración → Conexiones → Desarrollar integraciones → tu integración → «Secreto de integración interna».</p>
+    </div>
+    <div class="pantalla" aria-label="Esquema de la pantalla de secretos de GitHub">
+      <div class="barra"><i></i><i></i><i></i><em>github.com/ElyNasa27/Antropia/settings/secrets/actions</em></div>
+      <div class="lienzo">
+        <div class="tabs"><span>Code</span><span>Issues</span><span>Pull requests</span><span>Actions</span><span class="aqui">Settings</span></div>
+        <div class="lado">
+          <div class="menu"><span>General</span><span>Collaborators</span><span>…</span><span class="aqui">Secrets and variables</span><span class="sub aqui">Actions</span><span class="sub">Codespaces</span></div>
+          <div class="caja">
+            <div class="tabs"><span class="aqui">Secrets</span><span>Variables</span></div>
+            <span class="btn aqui">New repository secret</span>
+            <div class="campo"><label>Name</label><div>ANTROPIA_SMTP_CLAVE</div></div>
+            <div class="campo"><label>Secret</label><div>•••• •••• •••• ••••</div></div>
+            <span class="btn">Add secret</span>
+            <div class="lista"><div><span>NOTION_TOKEN</span><span>guardado</span></div><div><span>ANTROPIA_SMTP_USUARIO</span><span>guardado</span></div><div><span>ANTROPIA_SMTP_CLAVE</span><span>guardado</span></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 3 -->
+  <section class="paso">
+    <div class="texto">
+      <div class="cabeza"><span class="num">Paso 3</span><h2>Una variable con el texto de respuesta</h2></div>
+      <span class="donde">Mismo sitio, pestaña Variables</span>
+      <ol class="acciones">
+        <li>En <b class="boton">Secrets and variables</b> → <b class="boton">Actions</b>, pulsa la pestaña <b class="boton">Variables</b>.</li>
+        <li>Botón <b class="boton">New repository variable</b>.</li>
+        <li>Pega el nombre y el valor de abajo y pulsa <b class="boton">Add variable</b>.</li>
+      </ol>
+      <div class="copiar">
+        <div class="fila-copia"><code><small>Name</small>ANTROPIA_CURSOS_INSTRUCCIONES</code><button class="cp" data-copiar="ANTROPIA_CURSOS_INSTRUCCIONES">Copiar</button></div>
+        <div class="fila-copia"><code><small>Value</small>Si te interesa, responde a este correo para contarnos.</code><button class="cp" data-copiar="Si te interesa, responde a este correo para contarnos.">Copiar</button></div>
+      </div>
+      <p class="nota">Todavía <strong>no</strong> crees la variable que activa el envío. Eso es el paso 6, después del ensayo.</p>
+    </div>
+    <div class="pantalla" aria-label="Esquema de la pantalla de variables de GitHub">
+      <div class="barra"><i></i><i></i><i></i><em>…/settings/variables/actions</em></div>
+      <div class="lienzo">
+        <div class="tabs"><span>Secrets</span><span class="aqui">Variables</span></div>
+        <span class="btn aqui">New repository variable</span>
+        <div class="caja">
+          <div class="campo"><label>Name</label><div>ANTROPIA_CURSOS_INSTRUCCIONES</div></div>
+          <div class="campo"><label>Value</label><div>Si te interesa, responde a este correo para contarnos.</div></div>
+          <span class="btn">Add variable</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 4 -->
+  <section class="paso">
+    <div class="texto">
+      <div class="cabeza"><span class="num">Paso 4</span><h2>Dar acceso a la integración en Notion</h2></div>
+      <span class="donde">Página «Piloto - Intercambio de Conocimiento»</span>
+      <ol class="acciones">
+        <li>Abre la página del Piloto en Notion.</li>
+        <li>Arriba a la derecha, pulsa <b class="boton">⋯</b> → <b class="boton">Conexiones</b>.</li>
+        <li>Si tu integración no aparece en la lista, búscala y añádela. Así ve Participantes, «Matches por cursos [PRUEBA]» y la plantilla del correo.</li>
+      </ol>
+      <p class="nota">Si ya estaba conectada (por ejemplo, para el ciclo anterior), no hace falta hacer nada.</p>
+    </div>
+    <div class="pantalla" aria-label="Esquema del menú de conexiones de Notion">
+      <div class="barra"><i></i><i></i><i></i><em>Piloto - Intercambio de Conocimiento</em></div>
+      <div class="lienzo">
+        <div class="tabs" style="justify-content:flex-end"><span>Compartir</span><span class="aqui">⋯</span></div>
+        <div class="caja" style="justify-self:end; min-width:0; width:min(260px,100%)">
+          <span>Copiar enlace</span><span>Duplicar</span><span class="aqui">Conexiones</span><span>Mover a</span>
+        </div>
+        <div class="caja"><strong>Conexiones</strong><div class="lista"><div><span>Tu integración</span><span>conectada ✓</span></div></div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 5 -->
+  <section class="paso">
+    <div class="texto">
+      <div class="cabeza"><span class="num">Paso 5</span><h2>Ensayo: modo «simulacion»</h2></div>
+      <span class="donde">Pestaña Actions del repositorio</span>
+      <ol class="acciones">
+        <li>Pulsa la pestaña <b class="boton">Actions</b>.</li>
+        <li>A la izquierda, elige <b class="boton">Correos de coincidencias por cursos</b>.</li>
+        <li>A la derecha, <b class="boton">Run workflow</b> → en «modo» deja <code>simulacion</code> → botón verde <b class="boton">Run workflow</b>.</li>
+        <li>Espera el círculo verde (1–2 minutos), entra en la ejecución → <em>correos</em> → paso <em>Ejecutar</em>, y mira las últimas líneas.</li>
+      </ol>
+      <p>Lo esperado con tus 3 filas:</p>
+      <div class="salida">adoptar filas puestas a mano 3
+Correos que podrían enviarse como máximo …: 6
+Pendiente antes de poder enviar: falta ANTROPIA_ENVIAR_CORREOS_CURSOS=si
+Ningún correo enviado.</div>
+      <p class="nota">Si aparece cualquier otra línea «Pendiente antes de poder enviar», cópiala y revisamos antes de seguir. Este modo no escribe en Notion ni envía nada.</p>
+    </div>
+    <div class="pantalla" aria-label="Esquema de la pestaña Actions de GitHub">
+      <div class="barra"><i></i><i></i><i></i><em>github.com/ElyNasa27/Antropia/actions</em></div>
+      <div class="lienzo">
+        <div class="tabs"><span>Code</span><span class="aqui">Actions</span><span>Settings</span></div>
+        <div class="lado">
+          <div class="menu"><span>All workflows</span><span>Ciclo automático de encuentros</span><span class="aqui">Correos de coincidencias por cursos</span></div>
+          <div class="caja">
+            <span class="btn gris aqui">Run workflow ▾</span>
+            <div class="campo"><label>modo</label><div class="aqui">simulacion</div></div>
+            <div class="campo"><label>id_correo</label><div>(vacío)</div></div>
+            <span class="btn">Run workflow</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 6 -->
+  <section class="paso">
+    <div class="texto">
+      <div class="cabeza"><span class="num">Paso 6</span><h2>Activar y enviar</h2></div>
+      <span class="donde">GitHub: Variables, y después Actions</span>
+      <ol class="acciones">
+        <li>Vuelve a <b class="boton">Settings</b> → <b class="boton">Secrets and variables</b> → <b class="boton">Actions</b> → <b class="boton">Variables</b> y crea la variable de abajo con el valor <code>si</code>.</li>
+        <li>En <b class="boton">Actions</b> → <b class="boton">Correos de coincidencias por cursos</b> → <b class="boton">Run workflow</b>, elige el modo <code>enviar</code> y pulsa el botón verde.</li>
+        <li>Al terminar, el paso <em>Ejecutar</em> debe decir <code>Correos enviados: 6</code>. En Notion verás «Enviado» y el «Id correo» en cada fila, y los correos en la carpeta «Enviados» de la cuenta de la comunidad.</li>
+      </ol>
+      <div class="copiar">
+        <div class="fila-copia"><code><small>Name · Value: si</small>ANTROPIA_ENVIAR_CORREOS_CURSOS</code><button class="cp" data-copiar="ANTROPIA_ENVIAR_CORREOS_CURSOS">Copiar</button></div>
+      </div>
+      <p class="nota">Desde ese momento el workflow corre cada hora y solo envía correos nuevos; nunca repite uno enviado. <strong>Para pararlo</strong>, cambia el valor de esa variable a <code>no</code>.</p>
+    </div>
+    <div class="pantalla" aria-label="Esquema del resultado de una ejecución">
+      <div class="barra"><i></i><i></i><i></i><em>…/actions/runs/… · correos · Ejecutar</em></div>
+      <div class="lienzo">
+        <div class="lista"><div><span>✓ Instalar dependencias</span><span></span></div><div><span>✓ Pruebas</span><span></span></div><div class="aqui"><span>✓ Ejecutar</span><span>ábrelo</span></div></div>
+        <div class="salida">Modo: solo las filas puestas en la base por personas …
+Escrituras hechas: 3.
+Correos enviados: 6
+Vistas actualizadas en Notion: 3</div>
+        <span class="nota">Si alguno sale «Por revisar», no se reintenta solo. Avísame antes de reenviarlo.</span>
+      </div>
+    </div>
+  </section>
+
+  <p class="pie">Ningún paso de esta guía envía correos por sí solo, salvo el modo «enviar» del paso 6 con la variable activada.</p>
+</main>
+
+<script>
+document.querySelectorAll("button.cp").forEach(function (b) {
+  b.addEventListener("click", function () {
+    var texto = b.getAttribute("data-copiar");
+    var listo = function () { var t = b.textContent; b.textContent = "Copiado"; setTimeout(function () { b.textContent = t; }, 1400); };
+    var seleccionar = function () {
+      var code = b.parentElement.querySelector("code");
+      var r = document.createRange(); r.selectNodeContents(code);
+      var s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
+      b.textContent = "Seleccionado: Ctrl+C";
+    };
+    try {
+      navigator.clipboard.writeText(texto).then(listo, seleccionar);
+    } catch (e) { seleccionar(); }
+  });
+});
+</script>

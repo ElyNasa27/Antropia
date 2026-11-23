@@ -574,6 +574,11 @@ def enviar_correos(pendientes: list[EnvioPendiente], personas: dict, cliente, se
     """Primer intento de cada lado pendiente, con reserva exclusiva. Nunca repite."""
     r = ResumenEnvios()
     for e in pendientes:
+        if _id(e.par.a) not in personas or _id(e.par.b) not in personas:
+            # La ficha de alguna de las dos personas no se leyó (p. ej. la integración no
+            # la ve): no se puede escribir el correo. Se salta, sin reservar nada.
+            _contar(r, "no se pudo leer la ficha de alguna de las dos personas en Participantes")
+            continue
         informe = ee.enviar_automatico(
             registro, base_correo(e.fila.clave, e.lado), ejecucion, ahora().isoformat(timespec="seconds"),
             _enviar_fn(e, personas, servicio, instrucciones),

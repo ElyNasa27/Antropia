@@ -32,3 +32,6 @@ desktop.ini
 
 # Respuestas recordadas del análisis semántico local (Ollama)
 .cache/
+
+# Archivos intermedios del video (se regeneran con video/generar_video.py)
+video/tmp/
