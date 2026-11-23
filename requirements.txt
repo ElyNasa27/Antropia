@@ -1,3 +1,5 @@
 # Instalar SOLO dentro del entorno virtual del proyecto (.venv):
 #   .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 tzdata==2026.6
+# Análisis semántico de temas: usa Ollama local (encuentros/consultor_ollama.py)
+# con la biblioteca estándar; no necesita paquetes. consultor_claude.py queda sin usar.

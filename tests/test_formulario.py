@@ -4,7 +4,8 @@ from pathlib import Path
 
 from encuentros.formulario import RespuestaFormulario, cargar_respuestas_json, respuesta_desde_columnas
 from encuentros.notion_mapa import (
-    CAMPOS_INTERNOS_PARTICIPANTES, COLUMNAS_FORMULARIO, COLUMNAS_REALES_PARTICIPANTES, OPCIONES,
+    CAMPOS_INTERNOS_PARTICIPANTES, COLUMNAS_ELIMINADAS_PARTICIPANTES, COLUMNAS_FORMULARIO,
+    COLUMNAS_REALES_PARTICIPANTES, OPCIONES,
     SELECCION_MULTIPLE,
 )
 
@@ -13,7 +14,11 @@ RUTA = Path(__file__).resolve().parent.parent / "datos" / "formulario_ficticio.j
 
 class TestColumnasDelFormulario(unittest.TestCase):
     def test_todas_las_preguntas_usan_columnas_reales(self):
-        self.assertTrue(set(COLUMNAS_FORMULARIO.values()) <= COLUMNAS_REALES_PARTICIPANTES)
+        # Ruta manual (JSON ficticio): conserva dos columnas eliminadas de Notion el
+        # 2026-11-22. El ciclo automático ya no las lee (ver test_formulario_nuevo).
+        preguntas = set(COLUMNAS_FORMULARIO.values())
+        self.assertTrue(preguntas <= COLUMNAS_REALES_PARTICIPANTES | COLUMNAS_ELIMINADAS_PARTICIPANTES)
+        self.assertEqual(preguntas & COLUMNAS_ELIMINADAS_PARTICIPANTES, {"Acepta videollamada", "Zona horaria"})
 
     def test_ningun_campo_interno_es_pregunta(self):
         self.assertFalse(set(COLUMNAS_FORMULARIO.values()) & CAMPOS_INTERNOS_PARTICIPANTES)

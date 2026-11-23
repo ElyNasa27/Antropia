@@ -43,6 +43,16 @@ class ErrorEnvio(Exception):
     """El servicio de correo no pudo enviar el mensaje."""
 
 
+class ErrorEnvioSeguro(ErrorEnvio):
+    """Consta que el correo NO salió (p. ej. fallo al conectar o al iniciar sesión, o el
+    servidor rechazó el remitente, el destinatario o el mensaje). Se puede reintentar."""
+
+
+class ErrorEnvioDudoso(ErrorEnvio):
+    """No se sabe si el correo salió (p. ej. la conexión se cortó durante el envío).
+    NO debe reintentarse automáticamente: lo revisa una persona."""
+
+
 def correo_valido(direccion: str | None) -> bool:
     return bool(direccion) and len(direccion) <= 254 and bool(_CORREO_VALIDO.match(direccion.strip()))
 
@@ -102,6 +112,8 @@ class CorreoMatch:
     cuerpo: str = ""
     # (nombre de archivo, tipo MIME «principal/secundario», contenido)
     adjuntos: tuple[tuple[str, str, bytes], ...] = ()
+    # Identificador del mensaje (cabecera Message-ID), p. ej. para buscarlo en «Enviados».
+    message_id: str | None = None
 
 
 def redactar_aviso_match(nombre: str, nombre_otra: str, ensenas: list[str], aprendes: list[str]) -> str:
@@ -167,6 +179,8 @@ class EnvioGmailSMTP:
         msg["From"] = formataddr((self._nombre, self._usuario))
         msg["To"] = correo.para
         msg["Subject"] = _una_linea(correo.asunto)
+        if correo.message_id:
+            msg["Message-ID"] = _una_linea(correo.message_id)
         msg.set_content(correo.cuerpo)
         for nombre, tipo, contenido in correo.adjuntos:
             principal, secundario = tipo.split("/", 1)
@@ -174,14 +188,33 @@ class EnvioGmailSMTP:
         return msg
 
     def enviar(self, correo: CorreoMatch) -> None:
+        """Envía el correo. Si falla, distingue (sin direcciones ni credenciales en el error):
+          - ErrorEnvioSeguro: consta que NO salió (antes del envío, o el servidor lo rechazó).
+          - ErrorEnvioDudoso: se cortó durante el envío; pudo haber salido.
+        Un fallo DESPUÉS de que el servidor aceptara el mensaje (al cerrar la sesión) no es
+        un error: el correo salió."""
+        mensaje = self.construir(correo)
         try:
-            with smtplib.SMTP(self.SERVIDOR, self.PUERTO, timeout=self.timeout) as smtp:
+            smtp = smtplib.SMTP(self.SERVIDOR, self.PUERTO, timeout=self.timeout)
+        except (smtplib.SMTPException, OSError) as e:
+            raise ErrorEnvioSeguro(type(e).__name__) from None
+        try:
+            try:
                 smtp.starttls(context=ssl.create_default_context())
                 smtp.login(self._usuario, self._clave)
-                smtp.send_message(self.construir(correo))
-        except (smtplib.SMTPException, OSError) as e:
-            # Sin direcciones ni credenciales en el mensaje de error.
-            raise ErrorEnvio(f"{type(e).__name__}") from None
+            except (smtplib.SMTPException, OSError) as e:
+                raise ErrorEnvioSeguro(type(e).__name__) from None
+            try:
+                smtp.send_message(mensaje)
+            except (smtplib.SMTPRecipientsRefused, smtplib.SMTPSenderRefused, smtplib.SMTPDataError) as e:
+                raise ErrorEnvioSeguro(type(e).__name__) from None      # el servidor lo rechazó
+            except (smtplib.SMTPException, OSError) as e:
+                raise ErrorEnvioDudoso(type(e).__name__) from None      # pudo haber salido
+        finally:
+            try:
+                smtp.quit()
+            except (smtplib.SMTPException, OSError):
+                smtp.close()                     # el correo ya se aceptó o ya hubo error
 
 
 # ---------------------------------------------------------------------------

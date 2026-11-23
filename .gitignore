@@ -29,3 +29,6 @@ exportaciones/
 .idea/
 Thumbs.db
 desktop.ini
+
+# Respuestas recordadas del análisis semántico local (Ollama)
+.cache/

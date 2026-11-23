@@ -21,6 +21,10 @@ from datetime import datetime
 from typing import Callable
 
 from .automatico import ESPERANDO, PENDIENTE, FilaMatch, FilaRespuesta, Persona
+from .notion_mapa import (
+    COLUMNA_DIAS_DISPONIBLES, COLUMNA_ID_CONSECUTIVO, COLUMNA_MINUTOS_SELECCIONADOS, COLUMNA_OTRO_IDIOMA,
+    COLUMNA_ZONA_SELECCIONADA, COLUMNAS_FRANJAS, COLUMNAS_OTRAS_FRANJAS, COLUMNAS_TEMAS_ADICIONALES,
+)
 
 API = "https://api.notion.com/v1"
 VERSION_API = "2025-09-03"
@@ -28,6 +32,7 @@ VERSION_API = "2025-09-03"
 DS_PARTICIPANTES = os.environ.get("ANTROPIA_DS_PARTICIPANTES", "90dedf5c-24dd-836d-9814-87532a3f9afd")
 DS_MATCHES = os.environ.get("ANTROPIA_DS_MATCHES", "41fedf5c-24dd-819d-a540-000b01a12b25")
 DS_RESPUESTAS = os.environ.get("ANTROPIA_DS_RESPUESTAS", "41fedf5c-24dd-812f-a0c1-000b110affc1")
+DS_CURSOS = os.environ.get("ANTROPIA_DS_CURSOS", "66cedf5c-24dd-8211-adeb-87d102b1a5e1")
 
 
 class ErrorNotion(Exception):
@@ -126,6 +131,29 @@ def _sel(nombre: str | None) -> dict:
     return {"select": {"name": nombre} if nombre else None}
 
 
+def _tupla(v) -> tuple[str, ...]:
+    """Selección múltiple como tupla; acepta también una sola opción."""
+    if v is None:
+        return ()
+    return tuple(v) if isinstance(v, list) else (v,)
+
+
+def _texto_de(v) -> str | None:
+    """Una selección como texto («30», «Otro»); si llegara un número, también."""
+    if v is None or isinstance(v, bool):
+        return None
+    if isinstance(v, float) and v.is_integer():
+        v = int(v)
+    return str(v).strip() or None
+
+
+def _numero_consecutivo(prop: dict | None) -> int | None:
+    """«ID consecutivo» (tipo unique_id de Notion) -> número, o None."""
+    v = (prop or {}).get("unique_id") if (prop or {}).get("type") == "unique_id" else None
+    n = (v or {}).get("number")
+    return n if isinstance(n, int) and not isinstance(n, bool) else None
+
+
 def _id(x: str) -> str:
     return x.replace("-", "")
 
@@ -133,26 +161,40 @@ def _id(x: str) -> str:
 # ---------------------------------------------------------------------------
 # Almacén
 # ---------------------------------------------------------------------------
+def persona_desde_pagina(pg: dict) -> Persona:
+    """Una página de Participantes como Persona (también para releer UNA ficha)."""
+    p = pg["properties"]
+    g = lambda n: _valor(p.get(n))  # noqa: E731
+    return Persona(
+        id=_id(pg["id"]), alias=g("Alias") or "(sin alias)", correo=g("Correo electrónico"),
+        autoriza=g("Autorización para participar") is True, aptitud=g("Aptitud"),
+        respaldo=g("Respaldo declarado"), revision_respaldo=g("Revisión humana del respaldo"),
+        # «Acepta videollamada» y «Zona horaria» se eliminaron de Notion el 2026-11-22.
+        idioma=g("Idioma"), modalidad=g("Modalidad"),
+        ofrece=g("Ofrece"), quiere_aprender=g("Quiere aprender"),
+        disponibilidad=g("Disponibilidad + zona horaria"),
+        # El formulario pregunta los minutos de ENSEÑANZA en «Minutos disponibles».
+        minutos=g("Minutos disponibles"),
+        tipo_perfil=tuple(g("Tipo de perfil") or ()),   # selección múltiple
+        # Formulario nuevo: solo lectura (todavía no se usa en las reglas).
+        otro_idioma=g(COLUMNA_OTRO_IDIOMA),
+        objetivo_concreto=g("Objetivo concreto"),
+        zona_horaria_seleccionada=g(COLUMNA_ZONA_SELECCIONADA),
+        id_consecutivo=_numero_consecutivo(p.get(COLUMNA_ID_CONSECUTIVO)),
+        dias_disponibles=_tupla(g(COLUMNA_DIAS_DISPONIBLES)),
+        franjas={d: v for d, c in COLUMNAS_FRANJAS.items() if (v := _tupla(g(c)))},
+        otras_franjas={d: v for d, c in COLUMNAS_OTRAS_FRANJAS.items() if (v := g(c))},
+        minutos_seleccionados=_texto_de(g(COLUMNA_MINUTOS_SELECCIONADOS)),
+        temas_adicionales_con_datos=tuple(c for c in COLUMNAS_TEMAS_ADICIONALES if g(c)),
+    )
+
+
 class AlmacenNotion:
     def __init__(self, cliente: ClienteNotion) -> None:
         self.c = cliente
 
     def personas(self) -> list[Persona]:
-        res = []
-        for pg in self.c.consultar(DS_PARTICIPANTES):
-            p = pg["properties"]
-            g = lambda n: _valor(p.get(n))  # noqa: E731
-            res.append(Persona(
-                id=_id(pg["id"]), alias=g("Alias") or "(sin alias)", correo=g("Correo electrónico"),
-                autoriza=g("Autorización para participar") is True, aptitud=g("Aptitud"),
-                respaldo=g("Respaldo declarado"), revision_respaldo=g("Revisión humana del respaldo"),
-                idioma=g("Idioma"), modalidad=g("Modalidad"), acepta_videollamada=g("Acepta videollamada"),
-                ofrece=g("Ofrece"), quiere_aprender=g("Quiere aprender"),
-                disponibilidad=g("Disponibilidad + zona horaria"), zona_horaria=g("Zona horaria"),
-                # El formulario pregunta los minutos de ENSEÑANZA en «Minutos disponibles».
-                minutos=g("Minutos disponibles"),
-            ))
-        return res
+        return [persona_desde_pagina(pg) for pg in self.c.consultar(DS_PARTICIPANTES)]
 
     def matches(self) -> list[FilaMatch]:
         res = []
@@ -262,3 +304,65 @@ class AlmacenSoloLectura:
 
     def marcar_respuesta(self, rid, estado, mid):
         self.escrituras.append(f"respuesta {rid[-6:]}: {estado}")
+
+
+# ---------------------------------------------------------------------------
+# Cursos: SOLO LECTURA (simulación del 2026-11-22; no hay escritura de Cursos)
+# ---------------------------------------------------------------------------
+class EscrituraNoPermitida(Exception):
+    """Se intentó escribir con un cliente de solo lectura."""
+
+
+class ClienteSoloLectura:
+    """Envuelve ClienteNotion y solo deja CONSULTAR bases. Cualquier otra petición falla."""
+
+    def __init__(self, real: ClienteNotion) -> None:
+        self._real = real
+
+    def __repr__(self) -> str:
+        return "ClienteSoloLectura(token oculto)"
+
+    def consultar(self, data_source_id: str, filtro: dict | None = None) -> list[dict]:
+        return self._real.consultar(data_source_id, filtro)
+
+    def leer_fuente(self, data_source_id: str) -> dict:
+        """GET del esquema de una base (solo lectura)."""
+        return self._real.pedir("GET", f"/data_sources/{data_source_id}")
+
+    def leer_pagina(self, page_id: str) -> dict:
+        """GET de una página (solo lectura)."""
+        return self._real.pedir("GET", f"/pages/{page_id}")
+
+    def esta_en_la_papelera(self, page_id: str) -> bool | None:
+        """True solo si Notion devuelve la página y dice que está en la papelera.
+        False si existe y no lo está. None si no se puede saber (p. ej. sin acceso)."""
+        try:
+            pg = self._real.pedir("GET", f"/pages/{page_id}")
+        except ErrorNotion:
+            return None
+        if pg.get("in_trash") is True or pg.get("archived") is True:
+            return True
+        if pg.get("object") == "page":
+            return False
+        return None
+
+    def pedir(self, *a, **k):
+        raise EscrituraNoPermitida("cliente de solo lectura")
+
+    crear = actualizar = pedir
+
+
+def leer_cursos(cliente) -> list:
+    """Temas de Cursos con sus vínculos (ids sin guiones)."""
+    from .cursos import OFRECEN, QUIEREN, TemaExistente
+    res = []
+    for pg in cliente.consultar(DS_CURSOS):
+        p = pg["properties"]
+        rel = lambda n: p.get(n) or {}  # noqa: E731
+        res.append(TemaExistente(
+            id=_id(pg["id"]), titulo=_valor(p.get("Tema")) or "",
+            ofrecen=frozenset(_id(x) for x in _valor(rel(OFRECEN)) or []),
+            quieren=frozenset(_id(x) for x in _valor(rel(QUIEREN)) or []),
+            lectura_incompleta=bool(rel(OFRECEN).get("has_more") or rel(QUIEREN).get("has_more")),
+        ))
+    return res

@@ -46,8 +46,10 @@ FILA_PARTICIPANTE = {"id": "aaaa-1111", "properties": {
     "Autorización para participar": {"type": "checkbox", "checkbox": True},
     "Aptitud": sel("Apto"), "Revisión humana del respaldo": sel("No requerida"),
     "Respaldo declarado": t(None), "Idioma": sel("Español"), "Modalidad": sel("Virtual"),
-    "Acepta videollamada": sel(None), "Ofrece": t("Fotografía"), "Quiere aprender": t("Inglés"),
-    "Disponibilidad + zona horaria": t("lunes 18:00-20:00"), "Zona horaria": t("Europe/Madrid"),
+    "Ofrece": t("Fotografía"), "Quiere aprender": t("Inglés"),
+    "Disponibilidad + zona horaria": t("lunes 18:00-20:00"),
+    "Zona horaria seleccionada": sel("Europe/Madrid"),     # «Zona horaria» se eliminó el 2026-11-22
+    "ID consecutivo": {"type": "unique_id", "unique_id": {"prefix": None, "number": 7}},
     "Minutos disponibles": {"type": "number", "number": 30},
     "Tipo de perfil": {"type": "multi_select", "multi_select": [{"name": "Tutor"}, {"name": "Mentor"}]},
 }}
@@ -61,9 +63,11 @@ class TestCliente(unittest.TestCase):
         ])
         c = ClienteNotion("secreto-123", abrir=http)
         [p] = AlmacenNotion(c).personas()
-        self.assertEqual((p.id, p.alias, p.correo, p.minutos, p.zona_horaria),
-                         ("aaaa1111", "Alba", "alba@example.org", 30, "Europe/Madrid"))
+        self.assertEqual((p.id, p.alias, p.correo, p.minutos, p.zona_horaria_seleccionada, p.id_consecutivo),
+                         ("aaaa1111", "Alba", "alba@example.org", 30, "Europe/Madrid", 7))
+        self.assertIsNone(p.zona_horaria)                     # columna eliminada: no se lee
         self.assertTrue(p.autoriza)
+        self.assertEqual(p.tipo_perfil, ("Tutor", "Mentor"))     # para la aptitud automática
         metodo, url, cab, cuerpo = http.pedidos[1]
         self.assertEqual(url, f"https://api.notion.com/v1/data_sources/{DS_PARTICIPANTES}/query")
         self.assertEqual(cuerpo["start_cursor"], "c2")

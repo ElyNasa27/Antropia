@@ -25,8 +25,18 @@ Lo ejecuta **GitHub Actions cada 30 minutos** (`.github/workflows/ciclo-automati
    disponibilidad legible, zona IANA, «Minutos disponibles» y correo. Quien no los
    tiene queda fuera y el registro solo dice qué columnas faltan. Es una
    comprobación automática: no escribe «Aptitud» ni sustituye a las decisiones
-   humanas. «Tipo de perfil» es de selección múltiple y no interviene en el match.
-3. A2 empareja a quienes tienen autorización, Aptitud = Apto y respaldo resuelto.
+   humanas. Zona horaria: si viene con tildes («America/Bogotá») se usa su
+   equivalente sin tildes solo si coincide exactamente con una zona IANA; si no,
+   requiere aclaración. La disponibilidad necesita hora de inicio y de fin: una
+   hora sola no se completa.
+   **Aptitud automática (opción B)** (`evaluar_participante`): con «Aptitud» vacía
+   se calcula en memoria («Apto (automático)», nunca se escribe en Notion) si hay
+   autorización, A1 no encuentra problemas y el respaldo no exige revisión. Un
+   respaldo opcional pendiente no bloquea, pero se descarta (no se usa ni se
+   muestra como verificado). «Titulado», un título o credencial en el respaldo,
+   un tema que exige acreditación o una contradicción bloquean y piden revisión
+   humana. Un valor de «Aptitud» escrito por una persona se respeta.
+3. A2 empareja a quienes tienen autorización, Aptitud = Apto (o automática) y respaldo resuelto.
    **Temas** (`encuentros/temas.py`, comparación local y conservadora): se separan
    por comas, «;», «/» o « y » y cuentan si son iguales («Clases de inglés» /
    «ingles»), sinónimos de la lista `SINONIMOS` («inglés» / «English») o el mismo
@@ -266,6 +276,8 @@ con cada decisión ligada a la versión exacta).
 | `encuentros/notion_api.py` | API de Notion (biblioteca estándar) y almacén de Matches/Respuestas [PRUEBA] |
 | `encuentros/disponibilidad.py` | Lectura del texto libre: franjas, zona y temas |
 | `encuentros/temas.py` | Comparación conservadora de temas: igual, sinónimo, tema definido o «requiere aclaración» |
+| `encuentros/temas_semantica.py` | Análisis de cada dirección del intercambio (cubre / no cubre / requiere aclaración): reglas locales por defecto y, opcionalmente, un consultor por significado inyectado desde fuera (sin conexión configurada) |
+| `encuentros/consultor_ollama.py` | Consultor por significado con **qwen3:1.7b en Ollama local** (solo 127.0.0.1, sin proxies). Desactivado salvo `ANTROPIA_ANALISIS_SEMANTICO=si`; si el modelo falla, responde incoherente o se alcanza el límite por ciclo, el par queda «requiere aclaración». Recuerda respuestas válidas en `.cache/temas_semanticos.json` (huellas, sin textos). Pruebas en vivo con datos ficticios: `ANTROPIA_PRUEBA_OLLAMA=si` |
 | `ciclo_automatico.py` · `.github/workflows/ciclo-automatico.yml` | Ejecución cada 30 min en GitHub Actions |
 | `encuentros/correo.py` | Aviso automático de match: agenda privada, redacción, envío simulado y Gmail SMTP |
 | `tests/test_correo.py` | Envío automático a las dos personas, privacidad, sin duplicados, fallos y reintento |

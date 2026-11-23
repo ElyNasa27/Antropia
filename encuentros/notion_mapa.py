@@ -6,10 +6,10 @@ sin renombrar nada en Notion.
 """
 from __future__ import annotations
 
-from .modelos import EstadoPacto
+from .modelos import DIAS_SEMANA, EstadoPacto
 
 COLUMNAS_PARTICIPANTES = {
-    "id": "ID",
+    "id": "ID consecutivo",                  # «ID» se eliminó el 2026-11-22
     "nombre": "Alias",
     "autoriza_participar": "Autorización para participar",
     "aptitud": "Aptitud",
@@ -32,6 +32,57 @@ COLUMNAS_REALES_PARTICIPANTES = frozenset({
     "Aptitud", "Revisión humana del respaldo", "Faltantes", "ID",
 })
 
+# ---------------------------------------------------------------------------
+# Formulario nuevo (esquema releído en solo lectura el 2026-11-22).
+# Etapa 1: estas columnas solo se LEEN (automatico.Persona); todavía no cambian
+# la elegibilidad ni los horarios. Las columnas anteriores se conservan.
+# ---------------------------------------------------------------------------
+COLUMNA_OTRO_IDIOMA = "Otro idioma"                       # texto; se usa si «Idioma» incluye «Otro»
+COLUMNA_ZONA_SELECCIONADA = "Zona horaria seleccionada"   # selección (nombres IANA)
+COLUMNA_DIAS_DISPONIBLES = "Días disponibles"             # selección múltiple
+COLUMNA_MINUTOS_SELECCIONADOS = "Minutos seleccionados"   # 15…120 u «Otro» (-> «Minutos disponibles»)
+# día (como en modelos.DIAS_SEMANA) -> columna
+COLUMNAS_FRANJAS = {d: f"Franjas {d.capitalize()}" for d in DIAS_SEMANA}           # selección múltiple
+COLUMNAS_OTRAS_FRANJAS = {d: f"Otras franjas {d.capitalize()}" for d in DIAS_SEMANA}  # texto («Otro»)
+# Existen en Notion pero NO se usan (decisión del 2026-11-22): mientras estén
+# vacías se ignoran; si tienen datos solo se avisa, sin mostrarlos ni borrarlos.
+COLUMNAS_TEMAS_ADICIONALES = tuple(
+    f"{base} {n}" for base in ("Ofrece", "Quiere aprender") for n in range(2, 8)
+)
+COLUMNAS_NUEVAS_PARTICIPANTES = frozenset({
+    COLUMNA_OTRO_IDIOMA, COLUMNA_ZONA_SELECCIONADA, COLUMNA_DIAS_DISPONIBLES,
+    COLUMNA_MINUTOS_SELECCIONADOS, *COLUMNAS_FRANJAS.values(), *COLUMNAS_OTRAS_FRANJAS.values(),
+    *COLUMNAS_TEMAS_ADICIONALES,
+})
+COLUMNA_ID_CONSECUTIVO = "ID consecutivo"                 # numeración automática de Notion
+# Eliminadas de Notion el 2026-11-22 (el usuario copió antes el único valor de
+# «Zona horaria» a «Zona horaria seleccionada»). El ciclo automático ya no las lee;
+# siguen en COLUMNAS_FORMULARIO solo por la ruta manual con JSON ficticio.
+COLUMNAS_ELIMINADAS_PARTICIPANTES = frozenset({"ID", "Acepta videollamada", "Zona horaria"})
+COLUMNAS_REALES_PARTICIPANTES = (
+    (COLUMNAS_REALES_PARTICIPANTES | COLUMNAS_NUEVAS_PARTICIPANTES | {COLUMNA_ID_CONSECUTIVO})
+    - COLUMNAS_ELIMINADAS_PARTICIPANTES
+)
+
+OPCION_OTRO = "Otro"
+# Opciones del formulario nuevo, según la descripción del 2026-11-22.
+OPCIONES_FRANJA = tuple(f"{h:02d}:00–{h + 1:02d}:00" for h in range(24)) + (OPCION_OTRO,)
+# «Minutos seleccionados»: el formulario muestra etiquetas como «15 minutos».
+# PENDIENTE DE VERIFICAR en el esquema: la lista de opciones no se pudo leer (la
+# respuesta completa del esquema supera el tamaño permitido y las opciones no
+# aparecen en las consultas agregadas mientras ninguna fila las use). Se toman
+# las etiquetas del formulario; en la etapa 7 se confirmará con un recuento de
+# los valores usados y, si difieren, se ajusta solo este mapa.
+MINUTOS_POR_OPCION = {f"{m} minutos": m for m in (15, 30, 45, 60, 90, 120)}
+OPCIONES_MINUTOS = (*MINUTOS_POR_OPCION, OPCION_OTRO)
+
+
+def minutos_de_opcion(etiqueta: str | None) -> int | None:
+    """Minutos de una etiqueta exacta («30 minutos» -> 30). «Otro», vacía o
+    desconocida -> None (no se adivina: «Otro» se lee en «Minutos disponibles»).
+    Aún no se usa en las reglas (etapa 7)."""
+    return MINUTOS_POR_OPCION.get(" ".join((etiqueta or "").split()))
+
 # Preguntas del formulario «Antropia: comparte lo que sabes, aprende lo que sueñas»
 # -> columna de Participantes (campo de encuentros.formulario.RespuestaFormulario).
 COLUMNAS_FORMULARIO = {
@@ -53,7 +104,7 @@ COLUMNAS_FORMULARIO = {
 
 # Campos internos: nunca forman parte del formulario ni los escribe quien responde.
 CAMPOS_INTERNOS_PARTICIPANTES = frozenset({
-    "Aptitud", "Revisión humana del respaldo", "Faltantes", "ID",
+    "Aptitud", "Revisión humana del respaldo", "Faltantes", "ID", "ID consecutivo",
 })
 
 # Columnas de selección múltiple: su valor es una lista de opciones.

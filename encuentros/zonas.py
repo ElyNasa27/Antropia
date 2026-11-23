@@ -9,9 +9,10 @@ En Windows, zoneinfo necesita el paquete tzdata (instalado en .venv). Si falta,
 """
 from __future__ import annotations
 
+import unicodedata
 from datetime import tzinfo
 from typing import Callable
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError, available_timezones
 
 
 class ZonaNoDisponible(Exception):
@@ -29,6 +30,30 @@ def resolver_zona_real(nombre: str) -> tzinfo:
             f"no se pudo resolver la zona horaria {nombre!r} "
             "(en Windows suele indicar que falta el paquete tzdata)"
         ) from exc
+
+
+def _sin_tildes(texto: str) -> str:
+    return "".join(c for c in unicodedata.normalize("NFD", texto) if unicodedata.category(c) != "Mn")
+
+
+def zona_sin_tildes(nombre: str | None) -> str | None:
+    """La zona IANA equivalente a `nombre` quitando solo las tildes, o None.
+
+    Únicamente si el resultado coincide EXACTAMENTE (mayúsculas incluidas) con una
+    zona de la base IANA: «America/Bogotá» -> «America/Bogota». No corrige nada
+    más (ni espacios, ni mayúsculas, ni ciudades parecidas): si no coincide, la
+    zona requiere aclaración.
+    """
+    if not nombre:
+        return None
+    candidata = _sin_tildes(nombre.strip())
+    if candidata == nombre.strip():
+        return None                      # no había tildes que quitar
+    try:
+        validas = available_timezones()
+    except Exception:
+        return None
+    return candidata if candidata in validas else None
 
 
 def datos_de_zonas_disponibles() -> bool:

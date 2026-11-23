@@ -51,6 +51,7 @@ from .modelos import (
     PropuestaMatch, Respuesta, Solicitud, TipoRespuesta,
 )
 from .repositorio import RepositorioMemoria
+from .temas_semantica import AnalizadorTemas
 from .zonas import ResolverZona, ZonaNoDisponible, es_resolver_simulado, resolver_zona_real
 
 ESTADOS_ABIERTOS = {
@@ -86,6 +87,7 @@ class Coordinacion:
         permitir_zonas_simuladas: bool = False,
         directorio: DirectorioSimulado | None = None,
         notificador: NotificadorMatch | None = None,
+        analizador_temas: AnalizadorTemas | None = None,   # None = solo reglas locales
     ) -> None:
         if es_resolver_simulado(resolver) and permitir_zonas_simuladas is not True:
             raise ValueError(
@@ -101,6 +103,7 @@ class Coordinacion:
         self.dias_busqueda = dias_busqueda
         self.directorio = directorio
         self.notificador = notificador
+        self.analizador_temas = analizador_temas
         self.avisos_match: dict[str, ResultadoAviso] = {}
         self._contador = itertools.count(1)
 
@@ -196,6 +199,7 @@ class Coordinacion:
             self.repo.participantes, list(self.repo.solicitudes.values()),
             list(self.repo.matches.values()), desde_utc, self.resolver,
             lambda: self._id("match"), clave, self.dias_busqueda,
+            analizador=self.analizador_temas,
         )
         for sid, motivos in res.excluidas.items():
             self.repo.registrar("A2", "solicitud excluida", sid, "; ".join(motivos))
@@ -282,7 +286,7 @@ class Coordinacion:
         pa, sa, pb, sb = self._perfiles(m)
         ev = a2_match.evaluar_par(
             pa, sa, pb, sb, datetime.fromisoformat(m.evidencia["buscado_desde_utc"]),
-            self.resolver, m.evidencia["dias_busqueda"],
+            self.resolver, m.evidencia["dias_busqueda"], self.analizador_temas,
         )
         if ev.resultado != a2_match.PROPUESTA:
             raise OperacionNoPermitida(

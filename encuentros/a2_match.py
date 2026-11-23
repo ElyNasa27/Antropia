@@ -8,11 +8,16 @@ Requisito de la SOLICITUD (base Solicitudes): «Estado» = Lista.
 
 Criterios del PAR (solicitud origen A ↔ solicitud candidata B):
   - Reciprocidad: A ofrece algo que B busca Y B ofrece algo que A busca, las dos
-    con claridad (igual, sinónimo o tema definido; ver temas.py). Si en alguna
-    dirección solo hay temas relacionados con alcance o nivel incierto, el par
-    queda «Bloqueada» con «requiere aclaración»: no se propone. Si alguna
-    dirección no tiene relación alguna, es «sin reciprocidad».
-  - Mismo idioma.
+    con claridad. Cada dirección se analiza por separado con un analizador de
+    temas (temas_semantica.py): por defecto, solo las reglas locales de temas.py
+    (igual, sinónimo o tema definido); opcionalmente, además, un análisis por
+    significado («semántico») para lo que las reglas no resuelven. Si alguna
+    dirección «requiere aclaración», el par queda «Bloqueada»: no se propone.
+    Si alguna dirección «no cubre», es «sin reciprocidad».
+  - Al menos un idioma en común (o el mismo idioma, en el formato anterior).
+  - Dos filas con el mismo alias (sin distinguir mayúsculas, tildes ni espacios)
+    podrían ser la misma persona con correos distintos: ESE PAR queda «Bloqueada»
+    hasta que se aclare. Cada perfil puede seguir emparejándose con otras personas.
   - Modalidad compatible con videollamada (Virtual, o Mixta con aceptación
     explícita de lo virtual; si no consta, se pide aclaración).
   - Horario común real (UTC) durante TODA la duración del encuentro, que es la
@@ -37,15 +42,18 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Callable, Iterable
 
+from .idiomas import idiomas_comunes
 from .a3_pacto import (
     DIAS_BUSQUEDA, MODALIDAD_SOPORTADA, duracion_total, faltantes_de_minutos,
     inicios_comunes, resolver_zonas,
 )
 from .modelos import (
-    REVISION_APROBADA, REVISION_NO_REQUERIDA, PerfilEncuentro, Participante,
-    PropuestaMatch, Solicitud, aportes_distintos,
+    APTITUD_AUTOMATICA, RESPALDO_SIN_VERIFICAR_NO_USADO, REVISION_APROBADA,
+    REVISION_NO_REQUERIDA, PerfilEncuentro, Participante, PropuestaMatch, Solicitud,
+    aportes_distintos,
 )
-from .temas import FUERZA, REQUIERE_ACLARACION, comparar, coincidencias
+from .temas import FUERZA, REQUIERE_ACLARACION, coincidencias
+from .temas_semantica import ANALIZADOR_REGLAS, NO_CUBRE, REQUIERE, AnalizadorTemas
 from .zonas import ResolverZona
 
 MAX_CANDIDATOS_POR_SOLICITUD = 3
@@ -55,10 +63,24 @@ ESTADO_SOLICITUD_REQUERIDO = "lista"
 PROPUESTA, SIN_COINCIDENCIA, BLOQUEADA = "Propuesta", "Sin coincidencia", "Bloqueada"
 
 
+POSIBLE_MISMA_PERSONA = (
+    "posible misma persona (mismo alias en dos filas); requiere aclaración; no se propone este par"
+)
+
+
+def mismo_alias(pa: Participante, pb: Participante) -> bool:
+    a, b = _normalizar(pa.nombre or ""), _normalizar(pb.nombre or "")
+    return bool(a) and a == b
+
+
 def _normalizar(texto: str) -> str:
     """Minúsculas, sin tildes y con espacios simples («Inglés» = «ingles»)."""
     sin = "".join(c for c in unicodedata.normalize("NFD", texto) if unicodedata.category(c) != "Mn")
     return " ".join(sin.lower().split())
+
+
+# «Apto» escrito por una persona o «Apto (automático)» calculado por el ciclo automático.
+APTITUDES_VALIDAS = frozenset({APTITUD_REQUERIDA, _normalizar(APTITUD_AUTOMATICA)})
 
 
 # --- Requisitos de la persona -------------------------------------------------
@@ -72,6 +94,11 @@ def estado_respaldo(p: Participante) -> tuple[bool, str | None]:
     - "Pendiente" (o cualquier otro valor): no continúa.
     """
     tiene_respaldo = bool(p.respaldo_declarado and p.respaldo_declarado.strip())
+    if p.revision_respaldo == RESPALDO_SIN_VERIFICAR_NO_USADO:
+        # Solo lo asigna el ciclo automático, y solo tras descartar el respaldo del modelo.
+        if tiene_respaldo:
+            return False, "respaldo sin verificar presente en el modelo; requiere revisión humana"
+        return True, None
     if p.revision_respaldo == REVISION_APROBADA:
         if not tiene_respaldo:
             return False, "contradicción: respaldo «Aprobada» sin respaldo declarado; requiere revisión humana"
@@ -90,7 +117,7 @@ def motivos_participante_no_elegible(p: Participante) -> list[str]:
     motivos = []
     if p.autoriza_participar is not True:
         motivos.append("sin autorización para participar")
-    if _normalizar(p.aptitud or "") != APTITUD_REQUERIDA:
+    if _normalizar(p.aptitud or "") not in APTITUDES_VALIDAS:
         motivos.append(f"aptitud no Apto (aptitud: {p.aptitud or 'sin valor'})")
     ok, motivo = estado_respaldo(p)
     if not ok:
@@ -149,32 +176,45 @@ class EvaluacionPar:
 def evaluar_par(
     pa: Participante, sa: Solicitud, pb: Participante, sb: Solicitud,
     desde_utc: datetime, resolver: ResolverZona, dias: int = DIAS_BUSQUEDA,
+    analizador: AnalizadorTemas | None = None,
 ) -> EvaluacionPar:
     incompatibles: list[str] = []
     pendientes: list[str] = []
 
-    ra = comparar(sa.tema_ofrece, sb.tema_busca)
-    rb = comparar(sb.tema_ofrece, sa.tema_busca)
-    ca, cb = ra.coincidencias, rb.coincidencias
+    if mismo_alias(pa, pb):
+        pendientes.append(POSIBLE_MISMA_PERSONA)
+
+    # Cada dirección por separado: lo que A ofrece frente a lo que B busca, y al revés.
+    analizador = analizador or ANALIZADOR_REGLAS
+    ra = analizador.analizar(sa.tema_ofrece, sb.tema_busca)
+    rb = analizador.analizar(sb.tema_ofrece, sa.tema_busca)
+    ca, cb = list(ra.coincidencias), list(rb.coincidencias)
     a_ensena, b_ensena = [c.etiqueta for c in ca], [c.etiqueta for c in cb]
     aclaraciones: list[str] = []
-    if not (ra.cubre or ra.requiere_aclaracion) or not (rb.cubre or rb.requiere_aclaracion):
-        incompatibles.append("sin reciprocidad")      # una dirección no tiene relación alguna
+    if NO_CUBRE in (ra.estado, rb.estado):
+        incompatibles.append("sin reciprocidad")      # una dirección no cubre lo buscado
     else:
         for quien, otra, r in ((pa, pb, ra), (pb, pa, rb)):
-            if r.requiere_aclaracion:                 # sin coincidencia clara en esta dirección
+            if r.estado == REQUIERE:                  # sin conclusión clara en esta dirección
                 aclaraciones += [
                     f"{REQUIERE_ACLARACION} de temas: {quien.nombre} ofrece «{x.ofrece}» y "
                     f"{otra.nombre} busca «{x.busca}» ({x.motivo})" for x in r.aclaraciones
                 ]
         pendientes.extend(aclaraciones)
 
+    comunes: tuple[str, ...] = ()
     if not sa.idioma or not sb.idioma:
         for p, s in ((pa, sa), (pb, sb)):
             if not s.idioma:
                 pendientes.append(f"{p.nombre}: idioma de la solicitud")
+    elif sa.idiomas and sb.idiomas:
+        comunes = idiomas_comunes(sa.idiomas, sb.idiomas)
+        if not comunes:
+            incompatibles.append(f"sin idioma común ({sa.idioma} / {sb.idioma})")
     elif _normalizar(sa.idioma) != _normalizar(sb.idioma):
         incompatibles.append(f"sin idioma común ({sa.idioma} / {sb.idioma})")
+    else:
+        comunes = (sa.idioma,)
 
     for p, s in ((pa, sa), (pb, sb)):
         v = acepta_virtual(s)
@@ -219,7 +259,14 @@ def evaluar_par(
             # Tipo de cada coincidencia (igual, sinónimo, tema definido) y la más indirecta.
             "tipos_coincidencia": sorted({c.tipo for c in ca + cb}, key=FUERZA.get),
             "fuerza_temas": max(min(FUERZA[c.tipo] for c in ca), min(FUERZA[c.tipo] for c in cb)),
-            "idioma": sa.idioma,
+            # Cómo se decidió cada dirección («reglas» o «semántico») y por qué. Es una
+            # comparación de temas: no verifica conocimientos, niveles ni respaldos.
+            "analisis_temas": {
+                "a_b": {"origen": ra.origen, "motivo": ra.motivo},
+                "b_a": {"origen": rb.origen, "motivo": rb.motivo},
+            },
+            "idioma": ", ".join(comunes) or sa.idioma,
+            "idiomas_comunes": list(comunes),
             "modalidad": MODALIDAD_SOPORTADA,
             "horario_comun_utc": inicios[0].isoformat(),
             "horarios_comunes_encontrados": len(inicios),
@@ -266,6 +313,7 @@ def ejecutar_a2(
     clave_ejecucion: str,
     dias: int = DIAS_BUSQUEDA,
     maximo: int = MAX_CANDIDATOS_POR_SOLICITUD,
+    analizador: AnalizadorTemas | None = None,
 ) -> ResultadoA2:
     res = ResultadoA2(clave_ejecucion)
 
@@ -298,7 +346,7 @@ def ejecutar_a2(
                 resumen.ya_propuestas.append(sb.id)
                 continue
             pb = participantes[sb.participante_id]
-            ev = evaluar_par(pa, sa, pb, sb, desde_utc, resolver, dias)
+            ev = evaluar_par(pa, sa, pb, sb, desde_utc, resolver, dias, analizador)
             if ev.resultado == PROPUESTA:
                 validas.append((ev.evidencia["fuerza_temas"], ev.primer_inicio, sb.id, sb, ev))
             elif ev.resultado == BLOQUEADA:

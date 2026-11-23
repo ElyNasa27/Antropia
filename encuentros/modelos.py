@@ -20,6 +20,14 @@ REVISION_APROBADA = "Aprobada"
 REVISION_NO_REQUERIDA = "No requerida"
 REVISIONES_RESPALDO = (REVISION_PENDIENTE, REVISION_APROBADA, REVISION_NO_REQUERIDA)
 
+# Estado INTERNO del ciclo automático (nunca se escribe en Notion ni es una revisión
+# humana): el respaldo opcional sigue pendiente, no hace falta verificarlo para el
+# intercambio y por eso se descarta del modelo. No se muestra ni se usa en nada.
+RESPALDO_SIN_VERIFICAR_NO_USADO = "Sin verificar (no se usa)"
+
+# «Aptitud» calculada por el ciclo automático (solo en memoria; no es decisión humana).
+APTITUD_AUTOMATICA = "Apto (automático)"
+
 
 class OperacionNoPermitida(Exception):
     """Se intentó una acción que las reglas del piloto no permiten."""
@@ -76,6 +84,9 @@ class Solicitud:
     # Nunca se convierte automáticamente: una persona debe revisarlo.
     minutos_requieren_revision: bool = False
     minutos_revisados_por: str | None = None      # sin columna en Notion (ver notion_mapa)
+    # Idiomas de la persona (selección múltiple + «Otro idioma»). Si las dos solicitudes
+    # los traen, A2 exige al menos uno en común; si no, compara «idioma» como antes.
+    idiomas: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)

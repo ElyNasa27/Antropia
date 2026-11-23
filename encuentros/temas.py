@@ -46,7 +46,10 @@ from typing import Iterable
 
 IGUAL, SINONIMO, TEMA_DEFINIDO = "igual", "sinónimo", "tema definido"
 REQUIERE_ACLARACION = "requiere aclaración"
-FUERZA = {IGUAL: 0, SINONIMO: 1, TEMA_DEFINIDO: 2}   # menor = más directa
+# «semántico» solo lo produce el análisis por significado (temas_semantica.py),
+# nunca las reglas de este módulo. Es la coincidencia menos directa.
+SEMANTICO = "semántico"
+FUERZA = {IGUAL: 0, SINONIMO: 1, TEMA_DEFINIDO: 2, SEMANTICO: 3}   # menor = más directa
 SEPARADOR_ETIQUETA = " → "
 PARECIDO_ERRATA = 0.85
 

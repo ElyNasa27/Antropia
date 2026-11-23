@@ -1,13 +1,15 @@
 """Ciclo automático: formulario de Notion → match → respuestas → Jitsi → confirmación.
 
 Decisiones del 2026-11-21 (todo automático, sin revisiones humanas de match,
-pacto, respuestas ni confirmación; las únicas decisiones humanas siguen siendo
-«Aptitud» y «Revisión humana del respaldo» en Participantes):
+pacto, respuestas ni confirmación; las decisiones humanas que se respetan son
+«Aptitud» cuando una persona la escribe y «Revisión humana del respaldo»):
 
   0. A1 AUTOMÁTICO comprueba los datos de cada persona (temas, idioma, modalidad,
-     disponibilidad legible, zona horaria IANA, minutos y correo). Es una
-     comprobación automática: no escribe «Aptitud» ni nada en Notion y no
-     sustituye a las decisiones humanas de «Aptitud» y del respaldo.
+     disponibilidad legible, zona horaria IANA, minutos y correo). Con «Aptitud»
+     vacía, la aptitud se calcula en memoria («Apto (automático)») si hay
+     autorización, A1 no encuentra problemas y el respaldo no exige revisión
+     (ver evaluar_participante). Nunca escribe «Aptitud» ni nada en Notion; un
+     respaldo opcional pendiente no se usa ni se presenta como verificado.
   1. A2 empareja a las personas elegibles de Participantes (temas comparados de
      forma conservadora; si hay que aclarar un tema, NO se crea el match).
   2. Por cada par compatible se crea una fila en «Matches [PRUEBA]» y se envía a
@@ -39,13 +41,20 @@ from typing import Callable, Protocol
 
 from . import a2_match
 from .correo import CorreoMatch, ErrorEnvio, ServicioEnvio, correo_valido
-from .disponibilidad import leer_disponibilidad, leer_temas
+from .disponibilidad import leer_disponibilidad
+from .idiomas import interpretar_idioma
+from . import disponibilidad_formulario, minutos_formulario, zona_participante
+from .temas_formulario import leer_temas_formulario, problema_demasiados
 from .temas import SEPARADOR_ETIQUETA
 from .modelos import (
-    DIAS_SEMANA, REVISION_APROBADA, Participante, PropuestaMatch, Solicitud,
+    APTITUD_AUTOMATICA, DIAS_SEMANA, RESPALDO_SIN_VERIFICAR_NO_USADO, REVISION_APROBADA,
+    REVISION_NO_REQUERIDA, Participante, PropuestaMatch, Solicitud,
 )
 from .temas import REQUIERE_ACLARACION
-from .zonas import ResolverZona, ZonaNoDisponible, nombre_legible, resolver_zona_real
+from .temas_semantica import AnalizadorTemas
+from .zonas import (
+    ResolverZona, ZonaNoDisponible, nombre_legible, resolver_zona_real, zona_sin_tildes,
+)
 
 # Estados y respuestas, con los mismos textos que las opciones de Notion
 ESPERANDO, CONFIRMADO, CERRADO = "Esperando respuestas", "Confirmado", "Cerrado sin encuentro"
@@ -78,7 +87,10 @@ class Persona:
     aptitud: str | None = None
     respaldo: str | None = None
     revision_respaldo: str | None = None
-    idioma: str | None = None
+    # Columnas ELIMINADAS de Notion el 2026-11-22: «acepta_videollamada» y
+    # «zona_horaria» ya no se leen de Notion; se conservan solo para datos antiguos.
+    # «Idioma»: texto (formato anterior) o lista (selección múltiple). Ver idiomas.py.
+    idioma: str | list[str] | tuple[str, ...] | None = None
     modalidad: str | None = None
     acepta_videollamada: str | None = None
     ofrece: str | None = None
@@ -86,6 +98,64 @@ class Persona:
     disponibilidad: str | None = None
     zona_horaria: str | None = None
     minutos: float | None = None
+    tipo_perfil: tuple[str, ...] = ()     # «Tipo de perfil» (selección múltiple)
+    # --- Formulario nuevo (2026-11-22) ---------------------------------------------
+    # Usados: zona seleccionada (etapa 5), «Otro idioma» (3), días y franjas (6) y
+    # «Minutos seleccionados» (7). «Ofrece 2…7» / «Quiere aprender 2…7» no se usan.
+    otro_idioma: str | None = None                     # «Otro idioma» (se usa si «Idioma» incluye «Otro»)
+    # «Objetivo concreto»: solo se muestra a la PROPIA persona (correo de cursos).
+    objetivo_concreto: str | None = field(default=None, repr=False)
+    zona_horaria_seleccionada: str | None = None       # «Zona horaria seleccionada» (SÍ se usa: etapa 5)
+    id_consecutivo: int | None = None                  # «ID consecutivo» (solo para referirse a la fila)
+    dias_disponibles: tuple[str, ...] = ()             # «Días disponibles» (tal como vienen)
+    franjas: dict[str, tuple[str, ...]] = field(default_factory=dict)  # día -> «Franjas <Día>»
+    otras_franjas: dict[str, str] = field(default_factory=dict)        # día -> «Otras franjas <Día>»
+    minutos_seleccionados: str | None = None           # «Minutos seleccionados»
+    # Nombres (nunca el contenido) de «Ofrece 2…7» / «Quiere aprender 2…7» con datos.
+    temas_adicionales_con_datos: tuple[str, ...] = ()
+    # Calculado por el ciclo (no viene de Notion): el mismo correo, sin distinguir
+    # mayúsculas ni espacios, aparece en otra fila de Participantes.
+    correo_duplicado: bool = False
+
+
+# ---------------------------------------------------------------------------
+# Correo electrónico: identificador central de cada persona (2026-11-22)
+# ---------------------------------------------------------------------------
+CORREO_FALTA = "Correo electrónico (falta)"
+CORREO_NO_VALIDO = "Correo electrónico (no válido)"
+CORREO_DUPLICADO = "Correo electrónico (duplicado en otra fila; no se unen registros)"
+
+
+def clave_correo(direccion: str | None) -> str | None:
+    """El correo comparable: sin espacios alrededor y sin distinguir mayúsculas."""
+    if not isinstance(direccion, str):
+        return None
+    return direccion.strip().casefold() or None
+
+
+def marcar_correos_duplicados(personas: list["Persona"]) -> int:
+    """Marca `correo_duplicado` en TODAS las filas que comparten correo con otra.
+
+    Se comprueba entre todos los participantes leídos (también los incompletos o
+    sin autorización). No une ni modifica registros. Devuelve cuántas filas se marcaron.
+    """
+    cuenta: dict[str, int] = {}
+    for p in personas:
+        if (k := clave_correo(p.correo)):
+            cuenta[k] = cuenta.get(k, 0) + 1
+    for p in personas:
+        p.correo_duplicado = cuenta.get(clave_correo(p.correo), 0) > 1
+    return sum(p.correo_duplicado for p in personas)
+
+
+def problema_de_correo(p: "Persona") -> str | None:
+    if clave_correo(p.correo) is None:
+        return CORREO_FALTA
+    if p.correo_duplicado:
+        return CORREO_DUPLICADO
+    if not correo_valido(p.correo):
+        return CORREO_NO_VALIDO
+    return None
 
 
 @dataclass
@@ -203,29 +273,58 @@ def enlace_valido(enlace: str | None) -> bool:
 REVISADO_EN_NOTION = "persona en Notion («Revisión humana del respaldo»)"
 
 
+def elegir_zona_de(p: Persona, zona_en_texto: str | None = None) -> zona_participante.ZonaElegida:
+    """Zona de la persona: «Zona horaria seleccionada» o, si falta, la del formato
+    anterior. Datos contradictorios -> sin zona y con motivo. Ver zona_participante."""
+    if zona_en_texto is None:
+        zona_en_texto = leer_disponibilidad(p.disponibilidad).zona_en_texto
+    return zona_participante.elegir_zona(p.zona_horaria_seleccionada, p.zona_horaria, zona_en_texto)
+
+
+def elegir_minutos_de(p: Persona) -> minutos_formulario.MinutosElegidos:
+    """«Minutos seleccionados» o, con «Otro» o sin selección, «Minutos disponibles»."""
+    return minutos_formulario.elegir_minutos(p.minutos_seleccionados, p.minutos)
+
+
+def elegir_disponibilidad_de(p: Persona) -> disponibilidad_formulario.DisponibilidadElegida:
+    """Días y franjas del formulario nuevo o, si no hay, el texto anterior. Ver
+    disponibilidad_formulario: ante la duda, sin franjas y con motivo."""
+    return disponibilidad_formulario.elegir_disponibilidad(
+        p.dias_disponibles, p.franjas or {}, p.otras_franjas or {}, p.disponibilidad)
+
+
+MODALIDAD_NO_VIRTUAL = "Modalidad (el formulario solo admite «Virtual»; requiere aclaración)"
+
+
 def a_modelo(p: Persona) -> tuple[Participante, Solicitud, list[str]]:
     """Devuelve (participante, solicitud, avisos). No inventa datos."""
     avisos = []
     disp = leer_disponibilidad(p.disponibilidad)
-    if disp.no_reconocido:
-        avisos.append("disponibilidad no reconocida: " + "; ".join(disp.no_reconocido))
-    zona = (p.zona_horaria or "").strip() or disp.zona_en_texto
-    minutos = None
-    if isinstance(p.minutos, (int, float)) and p.minutos > 0 and float(p.minutos).is_integer():
-        minutos = int(p.minutos)
+    disponibilidad = elegir_disponibilidad_de(p)    # sin franjas si falta o es ambigua: A1 lo marca
+    eleccion = elegir_zona_de(p, disp.zona_en_texto)
+    zona = eleccion.zona                 # None si falta o es contradictoria: A1 lo marca
+    avisos.extend(eleccion.avisos)
+    minutos = elegir_minutos_de(p).minutos           # None si falta o hay duda: A1 lo marca
+    ofrece, demasiados_ofrece = leer_temas_formulario(p.ofrece)
+    quiere, demasiados_quiere = leer_temas_formulario(p.quiere_aprender)
     acepta = {"sí": True, "si": True, "no": False}.get((p.acepta_videollamada or "").strip().lower())
+    idiomas = interpretar_idioma(p.idioma, p.otro_idioma)
+    idioma = idiomas.idioma                          # None si no es seguro: A1 lo marca
     revision = p.revision_respaldo or "Pendiente"
     part = Participante(
         id=p.id, nombre=p.alias, autoriza_participar=p.autoriza is True, aptitud=p.aptitud,
         respaldo_declarado=p.respaldo, revision_respaldo=revision,
         respaldo_revisado_por=REVISADO_EN_NOTION if revision == REVISION_APROBADA else None,
-        idioma=p.idioma,
+        idioma=idioma,
     )
     sol = Solicitud(
         id="sol-" + p.id, participante_id=p.id,
-        tema_ofrece=leer_temas(p.ofrece), tema_busca=leer_temas(p.quiere_aprender),
-        idioma=p.idioma, modalidad=p.modalidad, minutos_por_sesion=minutos,
-        zona_horaria=zona, disponibilidad=disp.franjas,
+        # Con más de 7 temas no se usa ninguno (A1 pide aclaración; no se descarta ninguno).
+        tema_ofrece=[] if demasiados_ofrece else ofrece,
+        tema_busca=[] if demasiados_quiere else quiere,
+        idioma=idioma, modalidad=p.modalidad, minutos_por_sesion=minutos,
+        zona_horaria=zona, disponibilidad=list(disponibilidad.franjas),
+        idiomas=idiomas.idiomas if idioma else (),
         estado="Lista",                         # automático: no hay base Solicitudes
         acepta_virtual=acepta,
     )
@@ -253,28 +352,167 @@ def validar_a1_automatico(p: Persona, resolver: ResolverZona) -> list[str]:
     """
     part, sol, _ = a_modelo(p)
     problemas = []
-    if not sol.tema_ofrece:
-        problemas.append("Ofrece")
-    if not sol.tema_busca:
-        problemas.append("Quiere aprender")
-    if not (p.idioma or "").strip():
-        problemas.append("Idioma")
+    for pregunta, texto in (("Ofrece", p.ofrece), ("Quiere aprender", p.quiere_aprender)):
+        temas, demasiados = leer_temas_formulario(texto)
+        if demasiados:
+            problemas.append(problema_demasiados(pregunta))
+        elif not temas:
+            problemas.append(pregunta)
+    problema_idioma = interpretar_idioma(p.idioma, p.otro_idioma).problema
+    if problema_idioma:
+        problemas.append(problema_idioma)
     if not (p.modalidad or "").strip():
         problemas.append("Modalidad")
-    if not sol.disponibilidad:
-        problemas.append("Disponibilidad + zona horaria")
-    if not sol.zona_horaria:
-        problemas.append("Zona horaria")
+    elif _norm(p.modalidad) != "virtual":
+        problemas.append(MODALIDAD_NO_VIRTUAL)
+    disponibilidad = elegir_disponibilidad_de(p)
+    if disponibilidad.problemas:
+        problemas.extend(disponibilidad.problemas)
+    eleccion = elegir_zona_de(p)
+    if eleccion.problema:
+        problemas.append(eleccion.problema)
     else:
         try:
             resolver(sol.zona_horaria)
         except ZonaNoDisponible:
-            problemas.append("Zona horaria (no existe en la base IANA)")
-    if sol.minutos_por_sesion is None:
-        problemas.append("Minutos disponibles")
-    if not correo_valido(p.correo):
-        problemas.append("Correo electrónico")
+            problemas.append(zona_participante.NO_IANA)
+    if (problema_minutos := elegir_minutos_de(p).problema):
+        problemas.append(problema_minutos)
+    if (problema_correo := problema_de_correo(p)):
+        problemas.append(problema_correo)
     return problemas
+
+
+# ---------------------------------------------------------------------------
+# Aptitud automática y respaldo opcional (opción B, decidida el 2026-11-21)
+# ---------------------------------------------------------------------------
+# - Un respaldo opcional pendiente NO bloquea por sí solo si no hace falta
+#   verificarlo para el intercambio: se descarta del modelo (no se usa ni se
+#   muestra en nada) y en Notion sigue «Pendiente». Nunca se presenta como
+#   verificado ni se marca como revisado por una persona.
+# - Si hay una afirmación que requiere verificación (título o credencial, perfil
+#   «Titulado», tema que exige acreditación) o una contradicción, el perfil queda
+#   bloqueado y se pide revisión humana.
+# - «Aptitud» vacía se calcula en memoria («Apto (automático)»): nunca se escribe
+#   en Notion. Un valor escrito por una persona se respeta: «Apto» sigue valiendo
+#   y cualquier otro valor («Pendiente», «Incompleto», «Sin autorización»…) bloquea.
+# - La autorización, la reciprocidad de temas (A2) y la aceptación por separado de
+#   ambas personas (respuestas al match) no cambian.
+
+# Fragmentos (normalizados, sin tildes) que indican una afirmación de título o
+# credencial formal: requieren que una persona la verifique.
+TERMINOS_CREDENCIAL = (
+    "titulo", "titulad", "licenciad", "licenciatura", "grado en", "graduad", "egresad",
+    "ingenier", "master", "maestria", "doctorad", "doctor en", "doctora en", "phd",
+    "certificad", "certificacion", "certificado", "diploma", "acreditad", "colegiad",
+    "matricula profesional", "cedula profesional", "licencia profesional", "habilitad",
+    "universidad", "carrera de",
+)
+# Temas cuyo ejercicio suele exigir acreditación: no se enseñan sin respaldo revisado.
+TEMAS_QUE_REQUIEREN_VERIFICACION = (
+    "medicin", "medico", "salud", "enfermer", "psicolog", "psiquiatr", "terapi", "terapeut",
+    "nutricion", "nutriolog", "dietet", "farmac", "fisioterap", "primeros auxilios",
+    "legal", "abogad", "juridic", "derecho", "notari", "impuesto", "fiscal", "contabilidad",
+    "contador", "auditori", "inversion", "asesoria financiera", "finanzas",
+)
+PERFILES_QUE_REQUIEREN_VERIFICACION = frozenset({"titulado"})
+
+ORIGEN_PERSONA, ORIGEN_AUTOMATICO = "persona", "automático"
+
+
+def _norm(texto: str | None) -> str:
+    return a2_match._normalizar(texto or "")
+
+
+def _contiene(texto: str | None, fragmentos: tuple[str, ...]) -> bool:
+    t = _norm(texto)
+    return any(f in t for f in fragmentos)
+
+
+def afirmaciones_que_requieren_verificacion(p: Persona) -> list[str]:
+    """Motivos (sin datos personales) por los que hace falta una revisión humana."""
+    motivos = []
+    if any(_norm(t) in PERFILES_QUE_REQUIEREN_VERIFICACION for t in p.tipo_perfil or ()):
+        motivos.append("el perfil declara «Titulado»")
+    if _contiene(p.respaldo, TERMINOS_CREDENCIAL):
+        motivos.append("el respaldo menciona un título o una credencial")
+    if _contiene(p.ofrece, TEMAS_QUE_REQUIEREN_VERIFICACION):
+        motivos.append("ofrece un tema que requiere acreditación")
+    return motivos
+
+
+@dataclass
+class EvaluacionAptitud:
+    participante: Participante
+    solicitud: Solicitud
+    avisos: list[str]
+    bloqueo: str | None = None            # motivo del bloqueo (sin datos personales)
+    requiere_revision_humana: bool = False
+    bloqueo_escrito_por_persona: bool = False
+    a1_problemas: list[str] = field(default_factory=list)
+    origen_aptitud: str | None = None     # ORIGEN_PERSONA / ORIGEN_AUTOMATICO si es apta
+    respaldo_no_usado: bool = False       # respaldo opcional pendiente, descartado del modelo
+
+    @property
+    def apta(self) -> bool:
+        return self.origen_aptitud is not None
+
+
+def evaluar_participante(p: Persona, resolver: ResolverZona) -> EvaluacionAptitud:
+    """Aplica las reglas anteriores. No escribe nada ni inventa datos."""
+    part, sol, avisos = a_modelo(p)
+    ev = EvaluacionAptitud(part, sol, avisos)
+
+    # 1. Autorización: imprescindible, también para la aptitud automática.
+    if not part.autoriza_participar:
+        ev.bloqueo = "sin autorización para participar"
+        return ev
+
+    # 2. «Aptitud» escrita por una persona.
+    aptitud = _norm(p.aptitud)
+    if aptitud and aptitud != a2_match.APTITUD_REQUERIDA:
+        ev.bloqueo = f"«Aptitud» escrita por una persona: {p.aptitud}"
+        ev.bloqueo_escrito_por_persona = True
+        return ev
+
+    # 3. Respaldo.
+    revision = p.revision_respaldo or "Pendiente"
+    if revision in (REVISION_APROBADA, REVISION_NO_REQUERIDA):
+        ok, motivo = a2_match.estado_respaldo(part)       # contradicciones -> revisión humana
+        if not ok:
+            ev.bloqueo, ev.requiere_revision_humana = motivo, True
+            return ev
+    else:
+        motivos = afirmaciones_que_requieren_verificacion(p)
+        if motivos:
+            ev.bloqueo = "requiere revisión humana: " + "; ".join(motivos)
+            ev.requiere_revision_humana = True
+            return ev
+        # Nada que verificar para el intercambio: el respaldo (si lo hay) se descarta
+        # del modelo. En Notion sigue «Pendiente»; aquí no consta como revisado.
+        ev.respaldo_no_usado = bool((p.respaldo or "").strip())
+        part.respaldo_declarado = None
+        part.revision_respaldo = RESPALDO_SIN_VERIFICAR_NO_USADO
+        part.respaldo_revisado_por = None
+
+    # 4. A1 automático: los datos deben estar completos y ser utilizables.
+    ev.a1_problemas = validar_a1_automatico(p, resolver)
+    if ev.a1_problemas:
+        ev.bloqueo = "A1 automático: faltan o no son válidos: " + ", ".join(ev.a1_problemas)
+        return ev
+
+    # 5. Aptitud: la de la persona si escribió «Apto»; si está vacía, se calcula.
+    if aptitud:
+        ev.origen_aptitud = ORIGEN_PERSONA
+    else:
+        part.aptitud = APTITUD_AUTOMATICA
+        ev.origen_aptitud = ORIGEN_AUTOMATICO
+
+    # Comprobación final con las mismas reglas de A2 (no debería fallar).
+    restantes = a2_match.motivos_participante_no_elegible(part)
+    if restantes:
+        ev.bloqueo, ev.origen_aptitud = "; ".join(restantes), None
+    return ev
 
 
 # ---------------------------------------------------------------------------
@@ -396,6 +634,9 @@ class Configuracion:
     # nueva_sala_jitsi = salas reales. En ambos casos, una sala aleatoria distinta
     # por pareja, creada solo cuando las dos personas aceptaron la misma versión.
     nueva_sala: Callable[[], str] | None = None
+    # Analizador de temas de A2. None (por defecto) = solo reglas locales, sin red.
+    # Un AnalizadorSemantico añade el análisis por significado (ver temas_semantica.py).
+    analizador_temas: AnalizadorTemas | None = None
 
 
 @dataclass
@@ -412,6 +653,17 @@ class Resumen:
     a1_con_problemas: int = 0          # personas elegibles que A1 automático dejó fuera
     pares_por_aclarar: int = 0         # temas relacionados pero inciertos: no se propone match
     confirmados_sin_enlace: int = 0    # ambas aceptaron; falta un enlace real para confirmar
+    sin_autorizacion: int = 0          # sin «Autorización para participar»
+    bloqueo_escrito_por_persona: int = 0   # «Aptitud» distinta de Apto escrita por una persona
+    revision_humana_respaldo: int = 0  # afirmación que verificar o contradicción: bloqueado
+    aptitud_automatica: int = 0        # aptas con «Aptitud» calculada (vacía en Notion)
+    aptitud_de_persona: int = 0        # aptas con «Apto» escrito por una persona
+    respaldo_no_usado: int = 0         # respaldo opcional pendiente, descartado (no se usa)
+    temas_adicionales_con_datos: int = 0   # perfiles con datos en «Ofrece 2…7»/«Quiere aprender 2…7»
+    correos_duplicados: int = 0        # filas bloqueadas por compartir correo con otra
+    pares_misma_persona: int = 0       # pares no propuestos: mismo alias en dos filas
+    # Recuento por motivo de A1 (etiquetas fijas, sin datos personales).
+    motivos_a1: dict[str, int] = field(default_factory=dict)
     avisos: list[str] = field(default_factory=list)   # sin datos personales
 
 
@@ -434,12 +686,16 @@ class Ciclo:
         return True
 
     def _zona(self, p: Persona) -> str | None:
-        return (p.zona_horaria or "").strip() or leer_disponibilidad(p.disponibilidad).zona_en_texto
+        # La misma zona que usa A2 (incluido el equivalente IANA exacto sin tildes).
+        return a_modelo(p)[1].zona_horaria
 
     # -- ejecución ----------------------------------------------------------
     def ejecutar(self) -> Resumen:
-        self.personas = {p.id: p for p in self.almacen.personas()}
+        leidas = self.almacen.personas()
+        self.r.correos_duplicados = marcar_correos_duplicados(leidas)   # entre TODAS las filas
+        self.personas = {p.id: p for p in leidas}
         self.r.personas = len(self.personas)
+        self._avisar_temas_adicionales()
         self.filas = self.almacen.matches()
         self._aplicar_respuestas()
         for f in self.filas:
@@ -449,6 +705,15 @@ class Ciclo:
                 self._enviar_confirmaciones(f)
         self._nuevos_matches()
         return self.r
+
+    def _avisar_temas_adicionales(self) -> None:
+        """Solo un recuento: no muestra el contenido, no lo usa y no lo borra."""
+        con_datos = [p for p in self.personas.values() if p.temas_adicionales_con_datos]
+        self.r.temas_adicionales_con_datos = len(con_datos)
+        if con_datos:
+            self.r.avisos.append(
+                f"{len(con_datos)} perfil(es) con datos en «Ofrece 2…7» o «Quiere aprender 2…7»: "
+                "esas columnas no se usan ni se borran; revisar en Notion")
 
     def _aplicar_respuestas(self) -> None:
         por_huella = {}
@@ -484,6 +749,8 @@ class Ciclo:
         pa, pb = self.personas.get(f.a), self.personas.get(f.b)
         if pa is None or pb is None:
             return self._cerrar(f, "una de las personas ya no está en Participantes", avisar=False)
+        if a2_match._normalizar(pa.alias or "") and a2_match._normalizar(pa.alias or "") == a2_match._normalizar(pb.alias or ""):
+            return self._cerrar(f, a2_match.POSIBLE_MISMA_PERSONA, avisar=False)
         if NO_INTERESA in (f.respuesta_a, f.respuesta_b):
             return self._cerrar(f, "una persona respondió «No me interesa»")
         if not (f.aviso_a and f.aviso_b):
@@ -522,8 +789,7 @@ class Ciclo:
         if f.inicio_utc - MARGEN_CONFIRMAR <= self.ahora:
             return "la hora propuesta ya pasó o está demasiado cerca"
         for p in (pa, pb):
-            part, _, _ = a_modelo(p)
-            if a2_match.motivos_participante_no_elegible(part):
+            if not evaluar_participante(p, self.cfg.resolver).apta:
                 return f"{p.alias} ya no es elegible"
         fin = f.inicio_utc + f.duracion
         for g in self.filas:
@@ -540,11 +806,22 @@ class Ciclo:
         for g in self.filas:   # no antes de que terminen sus encuentros confirmados
             if g is not f and g.estado == CONFIRMADO and {g.a, g.b} & {f.a, f.b} and g.inicio_utc:
                 desde = max(desde, g.inicio_utc + g.duracion)
-        (part_a, sol_a, _), (part_b, sol_b, _) = a_modelo(pa), a_modelo(pb)
+        ea, eb = evaluar_participante(pa, self.cfg.resolver), evaluar_participante(pb, self.cfg.resolver)
+        if not (ea.apta and eb.apta):
+            return self._cerrar(f, f"{motivo}; una de las personas ya no es elegible")
+        part_a, sol_a, part_b, sol_b = ea.participante, ea.solicitud, eb.participante, eb.solicitud
+        fallos_antes = getattr(self.cfg.analizador_temas, "fallos", 0)
         try:
-            ev = a2_match.evaluar_par(part_a, sol_a, part_b, sol_b, desde, self.cfg.resolver, DIAS_BUSQUEDA)
+            ev = a2_match.evaluar_par(part_a, sol_a, part_b, sol_b, desde, self.cfg.resolver,
+                                      DIAS_BUSQUEDA, self.cfg.analizador_temas)
         except ZonaNoDisponible:
             ev = None
+        if (ev is None or ev.resultado != a2_match.PROPUESTA) and \
+                getattr(self.cfg.analizador_temas, "fallos", 0) > fallos_antes:
+            # El modelo local no respondió: no se cierra un match ya aceptado por un
+            # fallo técnico. Queda igual y se reintenta en el ciclo siguiente.
+            self.r.avisos.append(f"{f.id}: análisis semántico sin respuesta; se reintenta el horario después")
+            return
         if ev is None or ev.resultado != a2_match.PROPUESTA:
             return self._cerrar(f, f"{motivo}; no hay otro horario común")
         f.version += 1
@@ -609,36 +886,56 @@ class Ciclo:
     def _nuevos_matches(self) -> None:
         participantes, solicitudes = {}, []
         for p in self.personas.values():
-            part, sol, avisos = a_modelo(p)
-            if a2_match.motivos_participante_no_elegible(part):
-                continue                       # sin autorización, aptitud o respaldo: no se usa
-            problemas = validar_a1_automatico(p, self.cfg.resolver)
-            if problemas:
-                self.r.a1_con_problemas += 1
-                self.r.avisos.append(f"participante {p.id[-6:]}: A1 automático: faltan o no son "
-                                     f"válidos: " + ", ".join(problemas))
+            ev = evaluar_participante(p, self.cfg.resolver)
+            if not ev.apta:
+                if not ev.participante.autoriza_participar:
+                    self.r.sin_autorizacion += 1           # sin aviso: no quiere participar
+                elif ev.bloqueo_escrito_por_persona:
+                    self.r.bloqueo_escrito_por_persona += 1
+                elif ev.requiere_revision_humana:
+                    self.r.revision_humana_respaldo += 1
+                    self.r.avisos.append(f"participante {p.id[-6:]}: {ev.bloqueo}")
+                elif ev.a1_problemas:
+                    self.r.a1_con_problemas += 1
+                    for m in ev.a1_problemas:
+                        self.r.motivos_a1[m] = self.r.motivos_a1.get(m, 0) + 1
+                    self.r.avisos.append(f"participante {p.id[-6:]}: {ev.bloqueo}")
+                else:
+                    self.r.avisos.append(f"participante {p.id[-6:]}: no elegible: {ev.bloqueo}")
                 continue
-            participantes[p.id] = part
-            solicitudes.append(sol)
-            if avisos:
-                self.r.avisos.append(f"participante {p.id[-6:]}: " + "; ".join(avisos))
+            if ev.origen_aptitud == ORIGEN_AUTOMATICO:
+                self.r.aptitud_automatica += 1
+            else:
+                self.r.aptitud_de_persona += 1
+            if ev.respaldo_no_usado:
+                self.r.respaldo_no_usado += 1
+            participantes[p.id] = ev.participante
+            solicitudes.append(ev.solicitud)
+            if ev.avisos:
+                self.r.avisos.append(f"participante {p.id[-6:]}: " + "; ".join(ev.avisos))
         clave = f"auto-{self.ahora:%Y%m%dT%H%M}"
         contador = iter(range(1, 10_000))
         try:
             res = a2_match.ejecutar_a2(
                 participantes, solicitudes, [_como_propuesta(f, self.ahora) for f in self.filas],
                 self.ahora + ANTICIPACION, self.cfg.resolver, lambda: f"nuevo-{next(contador)}",
-                clave, DIAS_BUSQUEDA,
+                clave, DIAS_BUSQUEDA, analizador=self.cfg.analizador_temas,
             )
         except ZonaNoDisponible as e:
             self.r.avisos.append(f"A2 no se ejecutó: {e}")
             return
         self.r.elegibles = len(solicitudes) - len(res.excluidas)
-        por_aclarar = set()
+        por_aclarar, misma_persona = set(), set()
         for sid, resumen in res.por_solicitud.items():
             for otra, pendientes in resumen.bloqueadas.items():
+                par = tuple(sorted((sid[4:], otra[4:])))
                 if any(x.startswith(REQUIERE_ACLARACION) for x in pendientes):
-                    por_aclarar.add(tuple(sorted((sid[4:], otra[4:]))))
+                    por_aclarar.add(par)
+                if a2_match.POSIBLE_MISMA_PERSONA in pendientes:
+                    misma_persona.add(par)
+        for a, b in sorted(misma_persona):
+            self.r.avisos.append(f"par {a[-6:]}/{b[-6:]}: {a2_match.POSIBLE_MISMA_PERSONA}")
+        self.r.pares_misma_persona = len(misma_persona)
         for a, b in sorted(por_aclarar):
             self.r.avisos.append(f"par {a[-6:]}/{b[-6:]}: {REQUIERE_ACLARACION} de temas; no se propone match")
         self.r.pares_por_aclarar = len(por_aclarar)

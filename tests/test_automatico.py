@@ -1,5 +1,6 @@
 """Ciclo automático completo, con un almacén en memoria y envío simulado (datos ficticios)."""
 import copy
+import dataclasses
 import itertools
 import unittest
 from datetime import UTC, datetime, timedelta
@@ -7,8 +8,12 @@ from datetime import UTC, datetime, timedelta
 from encuentros.automatico import (
     ACEPTO, APLICADA, CADUCADA, CERRADO, CODIGO_NO_VALIDO, CONFIRMADO, ESPERANDO, MAX_VERSIONES,
     NO_INTERESA, PENDIENTE, SIN_RESPUESTA, YA_RESPONDIDA, Ciclo, Configuracion, FilaRespuesta,
-    Persona, huella, normalizar_codigo,
+    Persona, evaluar_participante, huella, normalizar_codigo,
 )
+from encuentros.modelos import (
+    REVISION_APROBADA, REVISION_NO_REQUERIDA, RESPALDO_SIN_VERIFICAR_NO_USADO,
+)
+from encuentros.zonas import resolver_zona_real
 from encuentros.correo import EnvioSimulado, contiene_correo
 from tests.apoyo import ZONAS_REALES
 
@@ -356,7 +361,10 @@ class TestCicloAutomatico(unittest.TestCase):
         casos = {
             "sin correo": bruno(correo=None),
             "no apto": bruno(aptitud="Pendiente"),
-            "respaldo sin revisar": bruno(respaldo="10 años de profesora", revision_respaldo="Pendiente"),
+            # Un respaldo de experiencia sin credenciales ya no bloquea (ver TestAptitudAutomatica);
+            # uno que afirma un título sí, mientras nadie lo revise.
+            "respaldo con título sin revisar": bruno(respaldo="Licenciada en Filología Inglesa",
+                                                     revision_respaldo="Pendiente"),
             "sin autorización": bruno(autoriza=False),
             "disponibilidad ilegible": bruno(disponibilidad="cuando pueda"),
             "minutos no válidos": bruno(minutos=None),
@@ -376,7 +384,7 @@ class TestCicloAutomatico(unittest.TestCase):
         self.assertEqual((f.a, f.b), ("alba", "bruno"))
         self.assertEqual(r.a1_con_problemas, 1)
         self.assertIn("participante carla: A1 automático: faltan o no son válidos: "
-                      "Zona horaria (no existe en la base IANA)", r.avisos)
+                      "Zona horaria (no existe en la base IANA; requiere aclaración)", r.avisos)
 
     def test_a1_automatico_no_marca_decisiones_humanas(self):
         from encuentros.automatico import validar_a1_automatico
@@ -413,6 +421,193 @@ class TestCicloAutomatico(unittest.TestCase):
         [f] = alm.filas.values()
         self.assertNotEqual(f.estado, CONFIRMADO)
         self.assertIsNone(f.enlace)
+
+
+def sin_aptitud(f, **kw):
+    """Perfil con «Aptitud» y «Revisión humana del respaldo» vacías, como en Notion."""
+    return dataclasses.replace(f(), **{"aptitud": None, "revision_respaldo": None, **kw})
+
+
+@unittest.skipUnless(ZONAS_REALES, "requiere tzdata (usar .venv)")
+class TestAptitudAutomatica(unittest.TestCase):
+    """Opción B: aptitud automática y respaldo opcional pendiente que no se usa."""
+
+    def setUp(self):
+        self.codigos = (f"C{n:03d}-AAAA".replace("0", "Q").replace("1", "R") for n in itertools.count(100))
+        self.salas = (f"https://meet.jit.si/AntropiaPrueba{n}" for n in itertools.count(1))
+
+    def ciclo(self, alm, envio, ahora=LUNES):
+        cfg = Configuracion(URL_FORM, CLAVE, generar_codigo=lambda: next(self.codigos),
+                            nueva_sala=lambda: next(self.salas))
+        return Ciclo(alm, envio, cfg, ahora).ejecutar()
+
+    def correr(self, personas):
+        alm, envio = AlmacenMemoria(personas), EnvioSimulado()
+        return alm, envio, self.ciclo(alm, envio)
+
+    def sin_match(self, alm, envio):
+        self.assertEqual(alm.filas, {})
+        self.assertEqual(envio.enviados, [])
+
+    # -- aptitud calculada ---------------------------------------------------
+    def test_aptitud_vacia_se_calcula_y_hay_match(self):
+        alm, envio, r = self.correr([sin_aptitud(alba), sin_aptitud(bruno)])
+        self.assertEqual((r.aptitud_automatica, r.aptitud_de_persona, r.elegibles), (2, 0, 2))
+        self.assertEqual(r.matches_nuevos, 1)
+        self.assertEqual(len(envio.enviados), 2)
+
+    def test_apto_escrito_por_una_persona_sigue_valiendo(self):
+        alm, envio, r = self.correr([alba(), sin_aptitud(bruno)])
+        self.assertEqual((r.aptitud_de_persona, r.aptitud_automatica, r.matches_nuevos), (1, 1, 1))
+
+    def test_no_escribe_aptitud_ni_revision_en_participantes(self):
+        alm, envio, r = self.correr([sin_aptitud(alba), sin_aptitud(bruno, respaldo="Doy clases")])
+        for p in alm._personas:
+            self.assertIsNone(p.aptitud)
+            self.assertIsNone(p.revision_respaldo)
+
+    # -- respaldo opcional ---------------------------------------------------
+    def test_respaldo_opcional_pendiente_no_bloquea_ni_se_muestra(self):
+        b = sin_aptitud(bruno, respaldo="10 años dando clases particulares", revision_respaldo="Pendiente")
+        alm, envio, r = self.correr([sin_aptitud(alba), b])
+        self.assertEqual((r.matches_nuevos, r.respaldo_no_usado, r.revision_humana_respaldo), (1, 1, 0))
+        [f] = alm.filas.values()
+        self.assertNotIn("clases particulares", f.notas)
+        for c in envio.enviados:
+            texto = (c.asunto + c.cuerpo).lower()
+            self.assertNotIn("clases particulares", texto)
+            self.assertNotIn("10 años", texto)
+            self.assertNotIn("verificad", texto)
+            self.assertNotIn("respaldo", texto)
+
+    def test_el_modelo_descarta_el_respaldo_y_no_consta_como_revisado(self):
+        b = sin_aptitud(bruno, respaldo="Doy clases desde hace años")
+        ev = evaluar_participante(b, resolver_zona_real)
+        self.assertTrue(ev.apta)
+        self.assertEqual(ev.origen_aptitud, "automático")
+        self.assertIsNone(ev.participante.respaldo_declarado)
+        self.assertIsNone(ev.participante.respaldo_revisado_por)
+        self.assertEqual(ev.participante.revision_respaldo, RESPALDO_SIN_VERIFICAR_NO_USADO)
+        self.assertNotIn(ev.participante.revision_respaldo, (REVISION_APROBADA, REVISION_NO_REQUERIDA))
+
+    def test_a2_rechaza_el_estado_interno_si_el_respaldo_sigue_en_el_modelo(self):
+        from encuentros import a2_match
+        from encuentros.modelos import Participante
+        p = Participante("x", "X", True, "Apto (automático)", "Doy clases", RESPALDO_SIN_VERIFICAR_NO_USADO)
+        self.assertTrue(a2_match.motivos_participante_no_elegible(p))
+        p.respaldo_declarado = None
+        self.assertEqual(a2_match.motivos_participante_no_elegible(p), [])
+
+    def test_afirmaciones_que_requieren_verificacion_bloquean(self):
+        casos = {
+            "título en el respaldo": dict(respaldo="Licenciada en Filología Inglesa"),
+            "certificado en el respaldo": dict(respaldo="Certificado C1 de inglés"),
+            "perfil Titulado sin respaldo": dict(tipo_perfil=("Titulado", "Tutor")),
+            "tema que exige acreditación": dict(ofrece="Asesoría legal para inquilinos"),
+        }
+        for nombre, kw in casos.items():
+            with self.subTest(nombre):
+                alm, envio, r = self.correr([sin_aptitud(alba), sin_aptitud(bruno, **kw)])
+                self.sin_match(alm, envio)
+                self.assertEqual((r.revision_humana_respaldo, r.aptitud_automatica), (1, 1))
+                [aviso] = [a for a in r.avisos if "bruno" in a]
+                self.assertIn("requiere revisión humana", aviso)
+                self.assertNotIn("Filología", aviso)       # el aviso no copia el respaldo
+
+    def test_respaldo_aprobado_por_una_persona_permite_la_afirmacion(self):
+        b = sin_aptitud(bruno, respaldo="Licenciada en Filología Inglesa", revision_respaldo="Aprobada")
+        alm, envio, r = self.correr([sin_aptitud(alba), b])
+        self.assertEqual((r.matches_nuevos, r.revision_humana_respaldo, r.respaldo_no_usado), (1, 0, 0))
+
+    def test_contradicciones_bloquean_y_piden_revision(self):
+        casos = {
+            "No requerida con respaldo": dict(respaldo="Doy clases", revision_respaldo="No requerida"),
+            "Aprobada sin respaldo": dict(respaldo=None, revision_respaldo="Aprobada"),
+        }
+        for nombre, kw in casos.items():
+            with self.subTest(nombre):
+                alm, envio, r = self.correr([sin_aptitud(alba), sin_aptitud(bruno, **kw)])
+                self.sin_match(alm, envio)
+                self.assertEqual(r.revision_humana_respaldo, 1)
+
+    # -- estados escritos por una persona, autorización y A1 -----------------
+    def test_estados_de_bloqueo_escritos_por_una_persona_se_respetan(self):
+        for valor in ("Pendiente", "Incompleto", "Sin autorización", "Apto (automático)"):
+            with self.subTest(valor):
+                alm, envio, r = self.correr([sin_aptitud(alba), sin_aptitud(bruno, aptitud=valor)])
+                self.sin_match(alm, envio)
+                self.assertEqual((r.bloqueo_escrito_por_persona, r.aptitud_automatica), (1, 1))
+
+    def test_sin_autorizacion_no_hay_aptitud_automatica(self):
+        alm, envio, r = self.correr([sin_aptitud(alba), sin_aptitud(bruno, autoriza=False)])
+        self.sin_match(alm, envio)
+        self.assertEqual((r.sin_autorizacion, r.aptitud_automatica), (1, 1))
+
+    def test_datos_incompletos_no_reciben_aptitud_automatica(self):
+        alm, envio, r = self.correr([sin_aptitud(alba), sin_aptitud(bruno, correo=None)])
+        self.sin_match(alm, envio)
+        self.assertEqual((r.a1_con_problemas, r.aptitud_automatica), (1, 1))
+
+    # -- zona horaria con tildes -----------------------------------------------
+    def test_zona_con_tildes_equivalente_exacta_se_acepta(self):
+        b = sin_aptitud(bruno, zona_horaria="América/Mexico_City")
+        alm, envio, r = self.correr([sin_aptitud(alba), b])
+        self.assertEqual((r.matches_nuevos, r.a1_con_problemas), (1, 0))
+        self.assertIn("participante bruno: zona horaria escrita con tildes: se usa su "
+                      "equivalente IANA exacto", r.avisos)
+        b_correo = next(c for c in envio.enviados if c.destinatario_id == "bruno")
+        self.assertIn("hora de Ciudad de México", b_correo.cuerpo)   # la zona IANA real
+        self.assertEqual(alm._personas[1].zona_horaria, "América/Mexico_City")  # Notion intacto
+
+    def test_zona_que_no_coincide_exactamente_pide_aclaracion(self):
+        for zona in ("America/Ciudad de México", "Europe/Málaga", "américa/mexico_city"):
+            with self.subTest(zona):
+                # Sin zona en el texto: así solo se prueba la zona no IANA (no una contradicción).
+                b = sin_aptitud(bruno, zona_horaria=zona, disponibilidad="lunes 11:00-13:00")
+                alm, envio, r = self.correr([sin_aptitud(alba), b])
+                self.sin_match(alm, envio)
+                self.assertEqual(r.a1_con_problemas, 1)
+                self.assertTrue(any("Zona horaria (no existe en la base IANA; requiere aclaración)" in a
+                                    for a in r.avisos))
+
+    # -- reciprocidad y aceptación separada ----------------------------------
+    def test_reciprocidad_se_mantiene(self):
+        b = sin_aptitud(bruno, ofrece="Cocina vegetariana")       # no es lo que busca Alba
+        alm, envio, r = self.correr([sin_aptitud(alba), b])
+        self.sin_match(alm, envio)
+        self.assertEqual(r.aptitud_automatica, 2)
+
+    def test_tema_incierto_sigue_pidiendo_aclaracion(self):
+        a = sin_aptitud(alba, quiere_aprender="inglés básico")
+        b = persona("bruno", "Bruno", "Inglés avanzado", "fotografia con movil",
+                    "lunes 11:00-13:00; America/Mexico_City", None, aptitud=None, revision_respaldo=None)
+        alm, envio, r = self.correr([a, b])
+        self.sin_match(alm, envio)
+        self.assertEqual(r.pares_por_aclarar, 1)
+
+    def test_cada_persona_debe_aceptar_por_separado(self):
+        alm, envio, _ = self.correr([sin_aptitud(alba), sin_aptitud(bruno)])
+        codigo = lambda pid: normalizar_codigo(next(   # noqa: E731
+            c.cuerpo for c in envio.enviados if c.destinatario_id == pid).split("código personal:")[1])
+        alm.responder(codigo("alba"), ACEPTO)
+        self.ciclo(alm, envio, LUNES + timedelta(hours=2))
+        [f] = alm.filas.values()
+        self.assertEqual((f.respuesta_a, f.respuesta_b, f.estado), (ACEPTO, PENDIENTE, ESPERANDO))
+        alm.responder(codigo("bruno"), ACEPTO)
+        self.ciclo(alm, envio, LUNES + timedelta(hours=3))
+        [f] = alm.filas.values()
+        self.assertEqual(f.estado, CONFIRMADO)
+
+    def test_si_deja_de_ser_apta_no_se_confirma(self):
+        alm, envio, _ = self.correr([sin_aptitud(alba), sin_aptitud(bruno)])
+        codigos = {c.destinatario_id: normalizar_codigo(c.cuerpo.split("código personal:")[1])
+                   for c in envio.enviados}
+        alm._personas[1].respaldo = "Licenciada en Filología Inglesa"   # ahora requiere revisión
+        for pid in ("alba", "bruno"):
+            alm.responder(codigos[pid], ACEPTO)
+        self.ciclo(alm, envio, LUNES + timedelta(hours=2))
+        [f] = alm.filas.values()
+        self.assertNotEqual(f.estado, CONFIRMADO)
 
 
 @unittest.skipUnless(ZONAS_REALES, "requiere tzdata (usar .venv)")
